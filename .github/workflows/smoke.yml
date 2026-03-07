@@ -1,0 +1,38 @@
+name: smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  bootstrap-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: true
+          activate-environment: ""
+          python-version: "3.12"
+
+      - name: Validate shell scripts
+        run: |
+          bash -n scripts/install.sh
+          bash -n scripts/verify.sh
+          bash -n scripts/uninstall.sh
+          bash -n scripts/sync_skills.sh
+          bash -n scripts/remove_skills.sh
+
+      - name: Dry-run installer
+        run: bash scripts/install.sh --env ctf --dry-run
+
+      - name: Dry-run skill sync
+        run: |
+          mkdir -p "$HOME/.codex/skills"
+          bash scripts/sync_skills.sh --dry-run
+          bash scripts/remove_skills.sh --dry-run
+
+      - name: Smoke Makefile
+        run: make smoke ENV=ctf
