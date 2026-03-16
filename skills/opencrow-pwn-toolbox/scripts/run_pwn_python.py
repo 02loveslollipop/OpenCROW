@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Python code or a Python file inside the conda environment named 'ctf'."""
+"""Run Python code or a Python file inside a conda environment for pwn work."""
 
 from __future__ import annotations
 
@@ -12,11 +12,16 @@ from pathlib import Path
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Execute Python code or a Python file via 'conda run -n ctf python'."
+        description="Execute Python code or a Python file via 'conda run -n ENV python'."
     )
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--code", help="Inline Python code to execute.")
     source.add_argument("--file", type=Path, help="Path to a Python file to execute.")
+    parser.add_argument(
+        "--env",
+        default="ctf",
+        help="Conda environment to use. Default: ctf.",
+    )
     parser.add_argument(
         "--timeout",
         type=int,
@@ -31,8 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_python_file(path: Path, timeout: int) -> int:
-    cmd = ["conda", "run", "-n", "ctf", "python", str(path)]
+def run_python_file(path: Path, env_name: str, timeout: int) -> int:
+    cmd = ["conda", "run", "-n", env_name, "python", str(path)]
     try:
         completed = subprocess.run(cmd, check=False, timeout=timeout)
     except FileNotFoundError:
@@ -56,16 +61,16 @@ def main() -> int:
         if file_path.suffix != ".py":
             print(f"Expected a .py file, got: {file_path.name}", file=sys.stderr)
             return 2
-        return run_python_file(file_path, args.timeout)
+        return run_python_file(file_path, args.env, args.timeout)
 
     temp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", prefix="codex-ctf-tools-", delete=False
+            mode="w", suffix=".py", prefix="codex-opencrow-pwn-", delete=False
         ) as handle:
             handle.write(args.code)
             temp_path = Path(handle.name)
-        return run_python_file(temp_path, args.timeout)
+        return run_python_file(temp_path, args.env, args.timeout)
     finally:
         if temp_path is not None and temp_path.exists() and not args.keep_temp:
             temp_path.unlink()

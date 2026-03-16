@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenCROW - Crypto Toolbox"
+  short_description: "Crypto tools for CTF workflows"
+  default_prompt: "Use $opencrow-crypto-toolbox for CTF crypto solving with the installed OpenCROW crypto stack."

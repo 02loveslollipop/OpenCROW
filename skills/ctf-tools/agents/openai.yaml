@@ -1,4 +1,0 @@
-interface:
-  display_name: "CTF Tools"
-  short_description: "Use ctf-env CTF and reversing tools"
-  default_prompt: "Use $ctf-tools to solve CTF tasks with the Anaconda ctf environment and installed pwn/reversing tools."

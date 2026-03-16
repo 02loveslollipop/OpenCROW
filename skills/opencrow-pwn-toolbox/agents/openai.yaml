@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenCROW - Pwn Toolbox"
+  short_description: "Pwn tools for exploit workflows"
+  default_prompt: "Use $opencrow-pwn-toolbox for exploit development and pwn workflows with the installed OpenCROW toolchain."

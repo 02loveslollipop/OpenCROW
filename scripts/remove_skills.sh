@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DIR="${HOME}/.codex/skills"
 DRY_RUN=0
+RETIRED_SKILLS=(
+  "ctf-tools"
+)
 
 usage() {
   cat <<EOF
@@ -42,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       exit 2
       ;;
   esac
+done
+
+for skill_name in "${RETIRED_SKILLS[@]}"; do
+  run rm -rf "$TARGET_DIR/$skill_name"
 done
 
 for skill_dir in "$ROOT_DIR"/skills/*; do

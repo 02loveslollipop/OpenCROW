@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenCROW - Reversing Toolbox"
+  short_description: "Reversing tools for binary workflows"
+  default_prompt: "Use $opencrow-reversing-toolbox for binary analysis and reversing with the installed OpenCROW stack."

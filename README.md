@@ -73,7 +73,11 @@ Pinned in [requirements-ctf.txt](/home/zerotwo/ctf-toolkit-bootstrap/requirement
 
 ### Codex skills injected into `~/.codex/skills`
 
-- `ctf-tools`
+- `opencrow-crypto-toolbox`
+- `opencrow-pwn-toolbox`
+- `opencrow-reversing-toolbox`
+- `opencrow-network-toolbox`
+- `opencrow-web-toolbox`
 - `minecraft-async`
 - `netcat-async`
 - `sagemath`
@@ -81,18 +85,70 @@ Pinned in [requirements-ctf.txt](/home/zerotwo/ctf-toolkit-bootstrap/requirement
 
 ## Included Skills
 
-### `ctf-tools`
+The OpenCROW toolbox layer now splits the old broad `ctf-tools` category into narrower skills so agent routing is more precise and less context-heavy.
 
-Use this skill for the normal Python-heavy CTF workflow outside SageMath. It is meant for exploit development, pwning, binary analysis, protocol scripting, symbolic solving, and quick one-off helpers that should run inside the repo's `ctf` conda environment instead of the ambient shell environment.
+### `opencrow-crypto-toolbox`
 
-The skill is the main bridge between Codex and the installed toolkit. In practice that means it gives the agent a reliable path for using packages such as `pwntools`, `angr`, `claripy`, `z3-solver`, `capstone`, `unicorn`, `keystone`, `ropper`, `r2pipe`, `scapy`, and `fpylll`, along with native tools like `gdb`, `checksec`, `patchelf`, `qemu-user`, `radare2`, `strace`, `ltrace`, `objdump`, and `nasm`.
+Use this skill for Python-first crypto work in the `ctf` environment when Sage is unnecessary or too heavy. It covers constraint solving with `z3`, lattice work with `fpylll`, and the surrounding Python glue common in CTF crypto problems where the agent needs to parse challenge data, model unknown values, and search for solutions quickly.
+
+It is the right default when the challenge is mostly symbolic equations, bit-vectors, key-recovery constraints, or lattice reduction expressed in ordinary Python. When the problem requires finite fields, elliptic curves, or Sage-native algebra, `sagemath` remains the better match.
 
 Typical use cases:
 
-- build and run exploit or solver scripts in the `ctf` environment
-- inspect ELF protections and patch binaries
-- debug a local or remote pwn target
-- automate reversing or packet-analysis workflows
+- solve symbolic or bit-vector crypto challenges with `z3`
+- run LLL or BKZ workflows with `fpylll`
+- build small Python helpers for ciphertext, oracle, or transcript analysis
+
+### `opencrow-pwn-toolbox`
+
+Use this skill for exploitation-heavy workflows in the `ctf` environment. It groups the installed runtime-facing tools such as `pwntools`, `pwndbg`, `gdb`, `gdbserver`, `checksec`, `patchelf`, `pwninit`, `seccomp-tools`, `qemu-user`, `gcc`, and `nasm` into a dedicated exploit toolbox instead of mixing them with unrelated analysis tasks.
+
+This is the right toolbox when the goal is to triage an ELF, understand mitigations, patch in the shipped loader or libc, debug a crashing primitive, or build and test an exploit script. It keeps the agent focused on the "gain control" path instead of the broader reverse-engineering or crypto stack.
+
+Typical use cases:
+
+- build exploit scripts with `pwntools`
+- inspect mitigations with `checksec`
+- debug locally with `gdb` or `pwndbg`
+- patch challenge runtimes with `pwninit` or `patchelf`
+- run non-native binaries through `qemu-user`
+
+### `opencrow-reversing-toolbox`
+
+Use this skill for binary-understanding workflows in the `ctf` environment. It collects the installed disassembly, emulation, symbolic-execution, tracing, and patching stack: `angr`, `claripy`, `capstone`, `keystone`, `unicorn`, `ropper`, `r2pipe`, `lief`, `ghidra-headless`, `radare2`, `objdump`, `strace`, `ltrace`, and `binwalk`.
+
+This is the better fit when the task is to recover logic, inspect control flow, decompile or lift behavior, emulate instructions, or extract firmware contents. It deliberately separates "understand the binary" workflows from exploit delivery so the skill trigger is tighter and the instructions stay relevant.
+
+Typical use cases:
+
+- script symbolic execution or CFG recovery with `angr`
+- disassemble or emulate instructions with `capstone`, `keystone`, and `unicorn`
+- inspect binaries with `radare2`, `objdump`, or `ghidra-headless`
+- trace runtime behavior with `strace` or `ltrace`
+- extract or inspect embedded blobs with `binwalk`
+
+### `opencrow-network-toolbox`
+
+Use this skill for packet- and protocol-level tasks in the `ctf` environment where `scapy` is the main installed tool. It covers Python-driven packet crafting, protocol parsing, synthetic traffic generation, and PCAP inspection without conflating those workflows with persistent stream sessions.
+
+This toolbox is intentionally narrow today because only `scapy` belongs in this category from the current installed stack. That is still useful for network challenge automation, packet decoders, and quick protocol experiments that benefit from structured packet handling.
+
+Typical use cases:
+
+- inspect or transform PCAPs with Python
+- generate custom packets for network challenges
+- write ad hoc dissectors or protocol helpers with `scapy`
+
+### `opencrow-web-toolbox`
+
+Use this skill only as a placeholder category for future web CTF tooling. There are no dedicated web tools mapped into the current OpenCROW workstation yet, so the skill exists to reserve the category and make the gap explicit instead of pretending the toolbox is populated.
+
+For now it ships with a dummy tool that prints `TODO: update with real tools`. Once dedicated HTTP, browser, or web exploitation tooling is added to the workstation, this toolbox should be updated with real instructions and concrete tool mappings.
+
+Typical use cases:
+
+- acknowledge that web is a planned toolbox category
+- provide a stable place to add real web tooling later
 
 ### `minecraft-async`
 
@@ -124,7 +180,7 @@ Typical use cases:
 
 Use this skill for math-heavy or algebra-heavy tasks that need real Sage instead of plain Python. It is intended for cryptography and CTF problem classes where finite fields, elliptic curves, modular arithmetic, lattices, polynomial algebra, small-root attacks, or PRNG analysis are easier or only practical in SageMath.
 
-The skill complements `ctf-tools` rather than replacing it. If the work is ordinary Python scripting, exploit logic, or generic reverse engineering, `ctf-tools` is the better default. If the work depends on Sage objects, symbolic number theory, lattice reduction patterns, or reusable `.sage` templates, this skill is the right choice.
+The skill complements `opencrow-crypto-toolbox` rather than replacing it. If the work is ordinary Python scripting, solver glue, or lattice code that fits `fpylll`, the crypto toolbox is the better default. If the work depends on Sage objects, symbolic number theory, lattice reduction patterns, or reusable `.sage` templates, this skill is the right choice.
 
 Typical use cases:
 
@@ -225,7 +281,7 @@ bash /home/zerotwo/ctf-toolkit-bootstrap/scripts/uninstall.sh --dry-run
 - The installer does not remove existing environments or tools.
 - The installer checks `conda` on `PATH` first, then common install locations such as `~/miniconda3` and `~/anaconda3`.
 - The uninstall script is conservative by default. It does not remove the conda environment or apt packages unless asked.
-- The vendored skill sync uses `rsync --delete` per managed skill directory, so repo copies become the source of truth for `ctf-tools`, `minecraft-async`, `netcat-async`, `sagemath`, and `ssh-async` under `~/.codex/skills`.
+- The vendored skill sync uses `rsync --delete` per managed skill directory and now also removes the retired `ctf-tools` directory, so repo copies become the source of truth for the OpenCROW toolbox skills plus `minecraft-async`, `netcat-async`, `sagemath`, and `ssh-async` under `~/.codex/skills`.
 - `minecraft-async` launches the existing `~/.minecraft` Java client directly for offline usernames and uses X11 automation through `python3-xlib` for fast in-game actions.
 - `pwndbg` is installed with the upstream rootless installer.
 - `ghidra` is downloaded from the official NSA GitHub release and unpacked under `~/.local/opt/ghidra`.

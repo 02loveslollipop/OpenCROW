@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Verify Python modules and system tools for the ctf CTF toolkit."""
+"""Verify Python modules for the OpenCROW network toolbox."""
 
 from __future__ import annotations
 
+import argparse
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,44 +12,23 @@ from pathlib import Path
 
 
 PYTHON_MODULES = [
-    "z3",
-    "pwn",
-    "angr",
-    "claripy",
-    "capstone",
-    "unicorn",
-    "keystone",
-    "ropper",
-    "r2pipe",
-    "lief",
     "scapy",
-    "fpylll",
-]
-
-SYSTEM_TOOLS = [
-    "gdb",
-    "pwndbg",
-    "gdbserver",
-    "ghidra-headless",
-    "pwninit",
-    "seccomp-tools",
-    "checksec",
-    "patchelf",
-    "qemu-aarch64",
-    "qemu-aarch64-static",
-    "qemu-arm",
-    "qemu-x86_64",
-    "r2",
-    "objdump",
-    "strace",
-    "ltrace",
-    "binwalk",
-    "gcc",
-    "nasm",
 ]
 
 
-def check_python_modules() -> dict[str, bool]:
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Verify the OpenCROW network toolbox inside a conda environment."
+    )
+    parser.add_argument(
+        "--env",
+        default="ctf",
+        help="Conda environment to use. Default: ctf.",
+    )
+    return parser
+
+
+def check_python_modules(env_name: str) -> dict[str, bool]:
     code = (
         "import importlib.util as u, json\n"
         f"mods = {PYTHON_MODULES!r}\n"
@@ -60,7 +39,7 @@ def check_python_modules() -> dict[str, bool]:
         temp_path = Path(handle.name)
     try:
         result = subprocess.run(
-            ["conda", "run", "-n", "ctf", "python", str(temp_path)],
+            ["conda", "run", "-n", env_name, "python", str(temp_path)],
             check=True,
             capture_output=True,
             text=True,
@@ -70,15 +49,12 @@ def check_python_modules() -> dict[str, bool]:
     return json.loads(result.stdout.strip())
 
 
-def check_system_tools() -> dict[str, bool]:
-    return {tool: shutil.which(tool) is not None for tool in SYSTEM_TOOLS}
-
-
 def main() -> int:
+    args = build_parser().parse_args()
+
     try:
         payload = {
-            "python_modules": check_python_modules(),
-            "system_tools": check_system_tools(),
+            "python_modules": check_python_modules(args.env),
         }
     except subprocess.CalledProcessError as exc:
         print(exc.stderr or str(exc), file=sys.stderr)

@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenCROW - Network Toolbox"
+  short_description: "Network tools for protocol workflows"
+  default_prompt: "Use $opencrow-network-toolbox for protocol and packet workflows with the installed OpenCROW network tools."
