@@ -1,6 +1,8 @@
-# CTF Toolkit Bootstrap
+# OpenCROW
 
-Bootstrap a CTF workstation around an existing Anaconda or Miniconda installation.
+Open Codex Runtime for Offensive Workflows.
+
+Bootstrap an offensive-workflow workstation around an existing Anaconda or Miniconda installation.
 
 This setup creates or updates a `ctf` conda environment, installs the Python solver/exploit stack used in this workspace, and installs the native reversing and pwn tools that were added here.
 It also vendors Codex skill folders and injects them into `~/.codex/skills`.
