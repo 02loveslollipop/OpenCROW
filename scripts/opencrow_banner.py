@@ -7,15 +7,26 @@ import math
 import re
 import textwrap
 from pathlib import Path
+from typing import Any
 
-from rich import box
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.text import Text
+try:
+    from rich import box
+    from rich.console import Console, Group
+    from rich.panel import Panel
+    from rich.text import Text
+except ModuleNotFoundError:  # pragma: no cover - exercised on hosts without rich installed
+    box = None
+    Console = Any  # type: ignore[assignment]
+    Group = Any  # type: ignore[assignment]
+    Panel = Any  # type: ignore[assignment]
+    Text = Any  # type: ignore[assignment]
+    RICH_AVAILABLE = False
+else:
+    RICH_AVAILABLE = True
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT_DIR = SCRIPT_DIR.parent.parent
+ROOT_DIR = SCRIPT_DIR.parent
 ICON_ASPECT_RATIO = 1.9
 PANEL_BORDER = "#A567D3"
 ICON_COLOR = "#F16C48"
@@ -280,6 +291,8 @@ def build_splash_lines(icon: str, width: int, height: int) -> list[Text]:
 
 
 def build_banner_renderable(width: int, height: int) -> Panel | Group:
+    if not RICH_AVAILABLE:
+        raise RuntimeError("rich is required to render the OpenCROW banner")
     icon = selected_icon_for_terminal(width, height)
     if width < 72 or height < 16:
         subtitle = Text("Open Codex Runtime for Offensive Workflows", style=f"bold {SUBTITLE_COLOR}")
@@ -296,7 +309,11 @@ def build_banner_renderable(width: int, height: int) -> Panel | Group:
     )
 
 
-def maybe_print_banner(console: Console) -> None:
+def maybe_print_banner(console: Console | None = None) -> None:
+    if not RICH_AVAILABLE:
+        return
+    if console is None:
+        console = Console()
     if not console.is_terminal:
         return
     width = console.size.width
