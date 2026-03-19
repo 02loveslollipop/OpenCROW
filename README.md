@@ -57,6 +57,25 @@ Tracked as manual full-profile steps today:
 
 - `Burp Suite Community`
 
+## Attribution
+
+OpenCROW installs and orchestrates third-party software, but it does not claim ownership of those tools.
+
+- Each third-party package remains under its own upstream license and terms.
+- OpenCROW does not relicense, modify, or redistribute those tools as part of this project.
+- The installer only downloads packages from their official or explicitly configured upstream sources.
+- Homepage and license links for selected tools are shown during installation so the operator can review them before proceeding.
+
+The current OpenCROW toolbox stack credits the upstream projects it installs or manages through the catalog, including:
+
+- `z3-solver`, `fpylll`, `PyCryptodome`, `hashcat`, `John the Ripper`, `factordb-pycli`
+- `pwntools`, `checksec`, `gdb`, `gdbserver`, `patchelf`, `qemu-user`, `qemu-user-static`, `nasm`, `gcc`, `pwninit`, `pwndbg`, `seccomp-tools`, `one_gadget`
+- `angr`, `claripy`, `capstone`, `unicorn`, `keystone-engine`, `ropper`, `ROPGadget`, `r2pipe`, `lief`, `qiling`, `frida-tools`, `ghidra`, `radare2`, `strace`, `ltrace`, `binwalk`, `binutils`
+- `scapy`, `tshark`, `tcpdump`, `netcat-openbsd`, `socat`, `nmap`
+- `sqlmap`, `gobuster`, `ffuf`, `dirb`, `wfuzz`, `OWASP ZAP`, `OpenStego`, `StegSolve`, `Autopsy`, `theHarvester`
+- `volatility3`, `exiftool`, `foremost`, `steghide`, `zsteg`, `shodan`, `sherlock`, `waybackpy`
+- `jq`, `yq`, `xxd`, `tmux`, `screen`, `ripgrep`, `fzf`
+
 ## Codex Skills
 
 Repo-managed skills synced into `~/.codex/skills`:
