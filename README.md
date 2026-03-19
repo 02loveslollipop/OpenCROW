@@ -2,7 +2,7 @@
 
 Open Codex Runtime for Offensive Workflows.
 
-OpenCROW bootstraps a CTF workstation around an existing Anaconda or Miniconda installation, then syncs the repo-managed Codex skills into `~/.codex/skills`. The current implementation is phase 1 of the larger plan: the installer is now catalog-driven, stateful, backed by a Python Typer CLI, and able to install a broad headless toolbox set plus track manual full-profile tools.
+OpenCROW bootstraps a CTF workstation around an existing Anaconda or Miniconda installation, then syncs the repo-managed Codex skills into `~/.codex/skills`. The current implementation is catalog-driven, stateful, backed by a Python Typer CLI, and able to install a broad headless toolbox set plus most full-profile tools directly.
 
 ## Requirements
 
@@ -37,7 +37,7 @@ Interactive modes:
 Current profiles:
 
 - `headless`: installs the CLI and automation-friendly tool set
-- `full`: includes the headless set plus tracks manual GUI/restricted tools such as Burp Suite Community, OWASP ZAP, Autopsy, StegSolve, OpenStego, and theHarvester
+- `full`: includes the headless set plus GUI/heavier tools such as OWASP ZAP, Autopsy, StegSolve, OpenStego, and theHarvester
 
 ## Implemented Toolboxes
 
@@ -56,11 +56,6 @@ The current phase 1 implementation covers:
 Tracked as manual full-profile steps today:
 
 - `Burp Suite Community`
-- `OWASP ZAP`
-- `Autopsy`
-- `StegSolve`
-- `OpenStego`
-- `theHarvester`
 
 ## Codex Skills
 

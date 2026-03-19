@@ -91,6 +91,11 @@ conda_command_present() {
   capture_as_target "$CONDA_BIN" run -n "$ENV_NAME" python -c "import shutil, sys; sys.exit(0 if shutil.which('$command_name') else 1)"
 }
 
+target_command_present() {
+  local command_name="$1"
+  capture_as_target bash -lc "command -v \"$command_name\" >/dev/null 2>&1"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env)
@@ -157,7 +162,7 @@ while IFS='|' read -r tool_id display_name install_kind verify_kind verify_value
           echo "${display_name}: no"
         fi
       else
-        if command -v "$verify_value" >/dev/null 2>&1; then
+        if target_command_present "$verify_value" >/dev/null 2>&1; then
           echo "${display_name}: yes"
         else
           echo "${display_name}: no"

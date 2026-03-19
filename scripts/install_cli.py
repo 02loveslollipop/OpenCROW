@@ -30,6 +30,19 @@ import tool_catalog
 ROOT_DIR = Path(__file__).resolve().parent.parent
 ASCII_TEXT_PATH = ROOT_DIR / "ascii_text.md"
 ICON_ASPECT_RATIO = 1.9
+AUTOPSY_ZIP_URL = "https://github.com/sleuthkit/autopsy/releases/download/autopsy-4.22.1/autopsy-4.22.1_v2.zip"
+AUTOPSY_INSTALL_SCRIPT_URL = (
+    "https://raw.githubusercontent.com/sleuthkit/autopsy/develop/linux_macos_install_scripts/install_application.sh"
+)
+SLEUTHKIT_JAVA_DEB_URL = (
+    "https://github.com/sleuthkit/sleuthkit/releases/download/sleuthkit-4.14.0/sleuthkit-java_4.14.0-1_amd64.deb"
+)
+OPENSTEGO_ZIP_URL = "https://github.com/syvaidya/openstego/releases/download/openstego-0.8.6/openstego-0.8.6.zip"
+OWASP_ZAP_TAR_URL = "https://github.com/zaproxy/zaproxy/releases/download/v2.17.0/ZAP_2.17.0_Linux.tar.gz"
+STEGSOLVE_JAR_URL = (
+    "https://raw.githubusercontent.com/eugenekolo/sec-tools/master/stego/stegsolve/stegsolve/stegsolve.jar"
+)
+THEHARVESTER_GIT_URL = "git+https://github.com/laramies/theHarvester.git"
 
 # TODO: replace this generated temporary crow icon with the final approved 16x16/32x32 assets.
 def inside_ellipse(x: float, y: float, cx: float, cy: float, rx: float, ry: float) -> bool:
@@ -1134,6 +1147,41 @@ def install_gem_spec(ctx: InstallerContext, spec: str) -> None:
     link_gem_executable(ctx, name)
 
 
+def write_target_executable(ctx: InstallerContext, path: Path, content: str) -> None:
+    quoted = shlex.quote(content)
+    run_shell_as_target(
+        ctx,
+        f"printf '%s\\n' {quoted} > {shlex.quote(str(path))} && chmod +x {shlex.quote(str(path))}",
+    )
+
+
+def save_state_as_target(ctx: InstallerContext, catalog: tool_catalog.Catalog, selection: dict[str, object]) -> None:
+    payload = {
+        "env_name": ctx.env_name,
+        "mode": selection["mode"],
+        "profile": selection["profile"],
+        "toolboxes": selection["toolboxes"],
+        "tool_ids": selection["tool_ids"],
+    }
+    state_file = tool_catalog.state_path(catalog)
+    run_as_target(
+        ctx,
+        [
+            "python3",
+            "-c",
+            (
+                "import sys; "
+                "from pathlib import Path; "
+                "path = Path(sys.argv[1]); "
+                "path.parent.mkdir(parents=True, exist_ok=True); "
+                "path.write_text(sys.argv[2])"
+            ),
+            str(state_file),
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        ],
+    )
+
+
 def install_direct_handler(ctx: InstallerContext, handler: str) -> None:
     if handler == "pwninit":
         run_shell_as_target(
@@ -1180,6 +1228,117 @@ def install_direct_handler(ctx: InstallerContext, handler: str) -> None:
             ctx,
             "curl -qsL https://install.pwndbg.re | "
             "sh -s -- -u -v 2026.02.18 -t pwndbg-gdb",
+        )
+        return
+    if handler == "openstego":
+        install_dir = ctx.target_home / ".local/opt/openstego"
+        run_shell_as_target(
+            ctx,
+            f"""
+set -euo pipefail
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+rm -rf {shlex.quote(str(install_dir))}
+mkdir -p {shlex.quote(str(install_dir.parent))}
+curl -fsSL {shlex.quote(OPENSTEGO_ZIP_URL)} -o "$tmp/openstego.zip"
+unzip -q -o "$tmp/openstego.zip" -d "$tmp/extract"
+root="$(find "$tmp/extract" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+mv "$root" {shlex.quote(str(install_dir))}
+chmod +x {shlex.quote(str(install_dir / 'openstego.sh'))}
+ln -sfn {shlex.quote(str(install_dir / 'openstego.sh'))} {shlex.quote(str(ctx.target_home / '.local/bin/openstego'))}
+""".strip(),
+        )
+        return
+    if handler == "owasp-zap":
+        install_dir = ctx.target_home / ".local/opt/zap"
+        run_shell_as_target(
+            ctx,
+            f"""
+set -euo pipefail
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+rm -rf {shlex.quote(str(install_dir))}
+mkdir -p {shlex.quote(str(install_dir.parent))}
+curl -fsSL {shlex.quote(OWASP_ZAP_TAR_URL)} -o "$tmp/zap.tar.gz"
+mkdir -p "$tmp/extract"
+tar -xzf "$tmp/zap.tar.gz" -C "$tmp/extract"
+root="$(find "$tmp/extract" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+mv "$root" {shlex.quote(str(install_dir))}
+launcher="$(find {shlex.quote(str(install_dir))} -maxdepth 2 -name 'zap.sh' | head -n1)"
+chmod +x "$launcher"
+ln -sfn "$launcher" {shlex.quote(str(ctx.target_home / '.local/bin/zap.sh'))}
+ln -sfn "$launcher" {shlex.quote(str(ctx.target_home / '.local/bin/zaproxy'))}
+""".strip(),
+        )
+        return
+    if handler == "stegsolve":
+        install_dir = ctx.target_home / ".local/opt/stegsolve"
+        run_shell_as_target(
+            ctx,
+            f"""
+set -euo pipefail
+mkdir -p {shlex.quote(str(install_dir))}
+curl -fsSL {shlex.quote(STEGSOLVE_JAR_URL)} -o {shlex.quote(str(install_dir / 'stegsolve.jar'))}
+""".strip(),
+        )
+        write_target_executable(
+            ctx,
+            ctx.target_home / ".local/bin/stegsolve",
+            "\n".join(
+                [
+                    "#!/bin/sh",
+                    f'exec java -jar "{install_dir / "stegsolve.jar"}" "$@"',
+                ]
+            ),
+        )
+        return
+    if handler == "theharvester":
+        install_dir = ctx.target_home / ".local/opt/theHarvester"
+        venv_dir = install_dir / "venv"
+        run_shell_as_target(
+            ctx,
+            f"""
+set -euo pipefail
+mkdir -p {shlex.quote(str(install_dir))}
+python3 -m venv {shlex.quote(str(venv_dir))}
+{shlex.quote(str(venv_dir / 'bin/pip'))} install --upgrade pip
+{shlex.quote(str(venv_dir / 'bin/pip'))} install {shlex.quote(THEHARVESTER_GIT_URL)}
+ln -sfn {shlex.quote(str(venv_dir / 'bin/theHarvester'))} {shlex.quote(str(ctx.target_home / '.local/bin/theHarvester'))}
+if [ -f {shlex.quote(str(venv_dir / 'bin/restfulHarvest'))} ]; then
+  ln -sfn {shlex.quote(str(venv_dir / 'bin/restfulHarvest'))} {shlex.quote(str(ctx.target_home / '.local/bin/restfulHarvest'))}
+fi
+""".strip(),
+        )
+        return
+    if handler == "autopsy":
+        install_dir = ctx.target_home / ".local/opt/autopsy"
+        run_root_shell(
+            ctx,
+            f"""
+set -euo pipefail
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL {shlex.quote(SLEUTHKIT_JAVA_DEB_URL)} -o "$tmp/sleuthkit-java.deb"
+apt-get install -y "$tmp/sleuthkit-java.deb"
+""".strip(),
+        )
+        run_shell_as_target(
+            ctx,
+            f"""
+set -euo pipefail
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+rm -rf {shlex.quote(str(install_dir))}
+mkdir -p {shlex.quote(str(install_dir.parent))}
+curl -fsSL {shlex.quote(AUTOPSY_ZIP_URL)} -o "$tmp/autopsy.zip"
+curl -fsSL {shlex.quote(AUTOPSY_INSTALL_SCRIPT_URL)} -o "$tmp/install_application.sh"
+chmod +x "$tmp/install_application.sh"
+JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+bash "$tmp/install_application.sh" -z "$tmp/autopsy.zip" -i {shlex.quote(str(install_dir))} -j "$JAVA_HOME" -n autopsy
+launcher="$(find {shlex.quote(str(install_dir))} -path '*/bin/autopsy' | head -n1)"
+chmod +x "$launcher"
+ln -sfn "$launcher" {shlex.quote(str(ctx.target_home / '.local/bin/autopsy'))}
+""".strip(),
         )
         return
     raise typer.BadParameter(f"Unknown direct install handler: {handler}")
@@ -1231,7 +1390,7 @@ def install_selection(ctx: InstallerContext, catalog: tool_catalog.Catalog, sele
     if ctx.dry_run:
         console.print("Dry-run mode: install state was not written.")
     else:
-        tool_catalog.save_state(catalog, selection, ctx.env_name)
+        save_state_as_target(ctx, catalog, selection)
 
     console.print()
     console.print("Bootstrap complete.", style="bold green")
