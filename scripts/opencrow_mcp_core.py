@@ -42,6 +42,14 @@ def summarize_command(command: list[str]) -> str:
     return subprocess.list2cmdline(command)
 
 
+def decode_output(value: bytes | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return value.decode("utf-8", errors="replace")
+
+
 def run_command(
     command: list[str],
     *,
@@ -55,7 +63,6 @@ def run_command(
             cwd=str(cwd) if cwd is not None else None,
             env=env,
             capture_output=True,
-            text=True,
             check=False,
             timeout=timeout_sec,
         )
@@ -63,23 +70,29 @@ def run_command(
         return {
             "ok": False,
             "stdout": "",
+            "stdout_bytes": b"",
             "stderr": str(exc),
+            "stderr_bytes": b"",
             "exit_code": 127,
             "command": summarize_command(command),
         }
     except subprocess.TimeoutExpired as exc:
         return {
             "ok": False,
-            "stdout": exc.stdout or "",
-            "stderr": exc.stderr or f"Timed out after {timeout_sec} seconds.",
+            "stdout": decode_output(exc.stdout),
+            "stdout_bytes": exc.stdout if isinstance(exc.stdout, bytes) else (exc.stdout.encode("utf-8") if exc.stdout else b""),
+            "stderr": decode_output(exc.stderr) or f"Timed out after {timeout_sec} seconds.",
+            "stderr_bytes": exc.stderr if isinstance(exc.stderr, bytes) else (exc.stderr.encode("utf-8") if exc.stderr else b""),
             "exit_code": 124,
             "command": summarize_command(command),
         }
 
     return {
         "ok": completed.returncode == 0,
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
+        "stdout": decode_output(completed.stdout),
+        "stdout_bytes": completed.stdout,
+        "stderr": decode_output(completed.stderr),
+        "stderr_bytes": completed.stderr,
         "exit_code": completed.returncode,
         "command": summarize_command(command),
     }
@@ -363,12 +376,15 @@ def command_exists(name: str) -> bool:
 
 def conda_module_available(env_name: str, module_name: str) -> bool:
     code = f"import importlib.util; raise SystemExit(0 if importlib.util.find_spec('{module_name}') else 1)"
-    result = subprocess.run(
-        ["conda", "run", "-n", env_name, "python", "-c", code],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["conda", "run", "-n", env_name, "python", "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
     return result.returncode == 0
 
 

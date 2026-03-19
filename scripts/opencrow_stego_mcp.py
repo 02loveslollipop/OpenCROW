@@ -218,7 +218,7 @@ def stego_extract(arguments: dict[str, object]) -> dict[str, object]:
         command = ["zsteg", "-E", str(payload), str(path)]
         result = run_command(command, cwd=cwd, timeout_sec=timeout_sec)
         if result["ok"]:
-            output_path.write_text(result["stdout"], encoding="utf-8")
+            output_path.write_bytes(result.get("stdout_bytes", b""))
         return (
             success_envelope(
                 toolbox=TOOLBOX_ID,
