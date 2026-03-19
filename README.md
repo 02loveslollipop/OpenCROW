@@ -28,6 +28,8 @@ Behavior:
 - The installer prints homepage and license links for every selected tool before it starts.
 - Proprietary packages marked in the catalog require an explicit terms acceptance prompt during interactive installs.
 - Install state is saved under `~/.local/share/opencrow/install-state.json`.
+- By default, re-running the installer merges the new selection into the saved managed set and installs only the missing delta.
+- Use `--replace-selection` when you want the installer to save exactly the current selection instead of performing an additive update.
 
 Interactive modes:
 
@@ -58,6 +60,25 @@ The current phase 1 implementation covers:
 Tracked as manual full-profile steps today:
 
 - `Burp Suite Community`
+
+## Attribution
+
+OpenCROW installs and orchestrates third-party software, but it does not claim ownership of those tools.
+
+- Each third-party package remains under its own upstream license and terms.
+- OpenCROW does not relicense, modify, or redistribute those tools as part of this project.
+- The installer only downloads packages from their official or explicitly configured upstream sources.
+- Homepage and license links for selected tools are shown during installation so the operator can review them before proceeding.
+
+The current OpenCROW toolbox stack credits the upstream projects it installs or manages through the catalog, including:
+
+- `z3-solver`, `fpylll`, `PyCryptodome`, `hashcat`, `John the Ripper`, `factordb-pycli`
+- `pwntools`, `checksec`, `gdb`, `gdbserver`, `patchelf`, `qemu-user`, `qemu-user-static`, `nasm`, `gcc`, `pwninit`, `pwndbg`, `seccomp-tools`, `one_gadget`
+- `angr`, `claripy`, `capstone`, `unicorn`, `keystone-engine`, `ropper`, `ROPGadget`, `r2pipe`, `lief`, `qiling`, `frida-tools`, `ghidra`, `radare2`, `strace`, `ltrace`, `binwalk`, `binutils`
+- `scapy`, `tshark`, `tcpdump`, `netcat-openbsd`, `socat`, `nmap`
+- `sqlmap`, `gobuster`, `ffuf`, `dirb`, `wfuzz`, `OWASP ZAP`, `OpenStego`, `StegSolve`, `Autopsy`, `theHarvester`
+- `volatility3`, `exiftool`, `foremost`, `steghide`, `zsteg`, `shodan`, `sherlock`, `waybackpy`
+- `jq`, `yq`, `xxd`, `tmux`, `screen`, `ripgrep`, `fzf`
 
 ## Codex Skills
 
@@ -108,12 +129,13 @@ bash ./scripts/install_headless.sh --dry-run
 bash ./scripts/install_headless.sh --profile headless
 bash ./scripts/install_headless.sh --toolbox opencrow-crypto-toolbox --toolbox opencrow-web-toolbox --profile headless
 bash ./scripts/install_headless.sh --tool one_gadget --tool zsteg
+bash ./scripts/install_headless.sh --toolbox opencrow-network-toolbox --replace-selection --profile headless
 bash ./scripts/update_headless.sh --toolbox opencrow-web-toolbox --profile headless
 ```
 
 ## `opencrow-autosetup`
 
-`opencrow-autosetup` is an installed CLI utility from the utility toolbox. It seeds a challenge workspace with reconnaissance artifacts and then launches a nested `codex exec` pass that only performs challenge reconnaissance.
+`opencrow-autosetup` is an installed CLI utility from the utility toolbox. It seeds a challenge workspace with reconnaissance artifacts and then launches a nested Codex pass that only performs challenge reconnaissance.
 
 Generated artifacts:
 

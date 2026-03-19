@@ -1192,8 +1192,9 @@ def state_to_interactive(selection: dict[str, object]) -> InteractiveState:
 def merge_selections(
     existing: dict[str, object] | None,
     requested: dict[str, object],
+    replace_selection: bool = False,
 ) -> dict[str, object]:
-    if existing is None:
+    if replace_selection or existing is None:
         return requested
     tool_ids = sorted({*existing["tool_ids"], *requested["tool_ids"]})  # type: ignore[index]
     toolboxes = sorted({*existing["toolboxes"], *requested["toolboxes"]})  # type: ignore[index]
@@ -1212,7 +1213,7 @@ def combine_selections(
     strategy: str,
 ) -> dict[str, object]:
     if strategy == "update":
-        return merge_selections(existing, requested)
+        return merge_selections(existing, requested, False)
     if strategy == "replace":
         return requested
     raise typer.BadParameter(f"Unknown selection strategy: {strategy}")
@@ -1722,6 +1723,10 @@ def run_install_flow(
     tool: Annotated[list[str], typer.Option("--tool", help="Select an individual tool. Repeatable.")] = [],
     profile: Annotated[str | None, typer.Option("--profile", help="Install profile: headless or full.")] = None,
     all_toolboxes: Annotated[bool, typer.Option("--all-toolboxes", help="Select all OpenCROW toolboxes explicitly.")] = False,
+    replace_selection: Annotated[
+        bool,
+        typer.Option("--replace-selection", help="Replace the saved managed selection instead of merging into it."),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print commands without executing them.")] = False,
 ) -> None:
     profile = ensure_profile(profile)
@@ -1770,7 +1775,8 @@ def run_install_flow(
 
     if mode == "headless-install":
         requested_selection = resolve_headless_selection(catalog, selected_toolboxes, tool, profile)
-        selection = combine_selections(existing_selection, requested_selection, strategy="replace")
+        strategy = "replace" if replace_selection or existing_selection else "replace"
+        selection = combine_selections(existing_selection, requested_selection, strategy=strategy)
         if existing_selection:
             console.print("Existing OpenCROW install state detected; replacing the managed selection.", style="cyan")
         warn_noninteractive_terms(catalog, requested_selection)
@@ -1822,6 +1828,10 @@ def headless_install(
     tool: Annotated[list[str], typer.Option("--tool", help="Select an individual tool. Repeatable.")] = [],
     profile: Annotated[str | None, typer.Option("--profile", help="Install profile: headless or full.")] = None,
     all_toolboxes: Annotated[bool, typer.Option("--all-toolboxes", help="Select all OpenCROW toolboxes explicitly.")] = False,
+    replace_selection: Annotated[
+        bool,
+        typer.Option("--replace-selection", help="Replace the saved managed selection instead of merging into it."),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print commands without executing them.")] = False,
 ) -> None:
     run_install_flow(
@@ -1831,6 +1841,7 @@ def headless_install(
         tool=tool,
         profile=profile,
         all_toolboxes=all_toolboxes,
+        replace_selection=replace_selection,
         dry_run=dry_run,
     )
 
