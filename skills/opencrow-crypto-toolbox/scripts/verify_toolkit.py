@@ -18,6 +18,7 @@ PYTHON_MODULES = [
 ]
 
 SYSTEM_TOOLS = [
+    "opencrow-crypto-mcp",
     "hashcat",
     "john",
 ]

@@ -25,6 +25,7 @@ PYTHON_MODULES = [
 ]
 
 SYSTEM_TOOLS = [
+    "opencrow-reversing-mcp",
     "ghidra-headless",
     "r2",
     "objdump",

@@ -17,6 +17,7 @@ PYTHON_MODULES = [
 ]
 
 SYSTEM_TOOLS = [
+    "opencrow-pwn-mcp",
     "gdb",
     "pwndbg",
     "gdbserver",

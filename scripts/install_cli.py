@@ -1671,6 +1671,33 @@ ln -sfn "$launcher" {shlex.quote(str(ctx.target_home / '.local/bin/autopsy'))}
             support_files=["opencrow_mcp_core.py"],
         )
         return
+    if handler == "opencrow-crypto-mcp":
+        install_opencrow_python_command(
+            ctx,
+            install_name="opencrow-crypto-mcp",
+            python_script="opencrow_crypto_mcp.py",
+            launcher_script="opencrow-crypto-mcp",
+            support_files=["opencrow_mcp_core.py", "opencrow_ctf_mcp_common.py"],
+        )
+        return
+    if handler == "opencrow-pwn-mcp":
+        install_opencrow_python_command(
+            ctx,
+            install_name="opencrow-pwn-mcp",
+            python_script="opencrow_pwn_mcp.py",
+            launcher_script="opencrow-pwn-mcp",
+            support_files=["opencrow_mcp_core.py", "opencrow_ctf_mcp_common.py"],
+        )
+        return
+    if handler == "opencrow-reversing-mcp":
+        install_opencrow_python_command(
+            ctx,
+            install_name="opencrow-reversing-mcp",
+            python_script="opencrow_reversing_mcp.py",
+            launcher_script="opencrow-reversing-mcp",
+            support_files=["opencrow_mcp_core.py", "opencrow_ctf_mcp_common.py"],
+        )
+        return
     if handler == "opencrow-netcat-mcp":
         install_opencrow_python_command(
             ctx,
