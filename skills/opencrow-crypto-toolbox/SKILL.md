@@ -5,6 +5,17 @@ description: Use the Anaconda `ctf` environment and installed crypto tooling for
 
 # OpenCROW Crypto Toolbox
 
+Prefer the `opencrow-crypto-mcp` server for typed crypto workflows. Fall back to the direct scripts only when you need to debug the underlying `ctf`-environment execution path.
+
+## MCP First
+
+- Use `toolbox_info`, `toolbox_verify`, and `toolbox_capabilities` first.
+- Use the typed crypto operations:
+  - `crypto_python`
+  - `crypto_factordb_lookup`
+  - `crypto_crack_hash`
+- Treat the existing helper scripts as the implementation fallback, not the primary interface.
+
 Use this skill for Python-first crypto work in the `ctf` environment plus the cracking and lookup tools that commonly complement it. This covers SMT constraints with `z3`, lattice work with `fpylll`, implementation helpers with `pycryptodome`, offline cracking with `hashcat` or `john`, and quick FactorDB checks.
 
 ## Quick Start

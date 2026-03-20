@@ -66,6 +66,12 @@ Wave 1 MCP servers:
 - `opencrow-osint-mcp`
 - `opencrow-web-mcp`
 
+Wave 2 MCP servers:
+
+- `opencrow-crypto-mcp`
+- `opencrow-pwn-mcp`
+- `opencrow-reversing-mcp`
+
 I/O MCP servers:
 
 - `opencrow-netcat-mcp`
@@ -134,6 +140,12 @@ Installed I/O MCP commands:
 - `opencrow-netcat-mcp`: MCP bridge for the managed TCP session backend
 - `opencrow-ssh-mcp`: MCP bridge for the managed SSH session backend
 - `opencrow-minecraft-mcp`: MCP bridge for managed local Minecraft launch, logs, screenshots, and X11 actions
+
+Installed toolbox MCP commands:
+
+- `opencrow-crypto-mcp`: typed crypto workflows over the `ctf` environment plus cracking helpers
+- `opencrow-pwn-mcp`: typed exploit-development helpers for checksec, cyclic patterns, ELF patching, and one_gadget
+- `opencrow-reversing-mcp`: typed reversing workflows for disassembly, tracing, binwalk, gadget search, and Python analysis
 
 ## MCP Architecture
 

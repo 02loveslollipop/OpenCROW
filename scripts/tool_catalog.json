@@ -121,6 +121,17 @@
       "verify": {"kind": "module", "value": "factordb"}
     },
     {
+      "id": "opencrow-crypto-mcp",
+      "display_name": "opencrow-crypto-mcp",
+      "toolbox": "opencrow-crypto-toolbox",
+      "profiles": ["headless", "full"],
+      "summary": "Provider-neutral MCP server for the OpenCROW crypto toolbox.",
+      "homepage_url": "https://github.com/02loveslollipop/OpenCROW",
+      "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "install": {"kind": "direct", "handler": "opencrow-crypto-mcp"},
+      "verify": {"kind": "command", "value": "opencrow-crypto-mcp"}
+    },
+    {
       "id": "pwntools",
       "display_name": "pwntools",
       "toolbox": "opencrow-pwn-toolbox",
@@ -262,6 +273,17 @@
       "license_url": "https://github.com/david942j/one_gadget/blob/master/LICENSE",
       "install": {"kind": "gem", "package": "one_gadget", "version": "1.10.0", "apt_dependencies": ["ruby"]},
       "verify": {"kind": "command", "value": "one_gadget"}
+    },
+    {
+      "id": "opencrow-pwn-mcp",
+      "display_name": "opencrow-pwn-mcp",
+      "toolbox": "opencrow-pwn-toolbox",
+      "profiles": ["headless", "full"],
+      "summary": "Provider-neutral MCP server for the OpenCROW pwn toolbox.",
+      "homepage_url": "https://github.com/02loveslollipop/OpenCROW",
+      "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "install": {"kind": "direct", "handler": "opencrow-pwn-mcp"},
+      "verify": {"kind": "command", "value": "opencrow-pwn-mcp"}
     },
     {
       "id": "angr",
@@ -455,6 +477,17 @@
       "license_url": "https://packages.ubuntu.com/noble/binutils",
       "install": {"kind": "apt", "package": "binutils"},
       "verify": {"kind": "command", "value": "objdump"}
+    },
+    {
+      "id": "opencrow-reversing-mcp",
+      "display_name": "opencrow-reversing-mcp",
+      "toolbox": "opencrow-reversing-toolbox",
+      "profiles": ["headless", "full"],
+      "summary": "Provider-neutral MCP server for the OpenCROW reversing toolbox.",
+      "homepage_url": "https://github.com/02loveslollipop/OpenCROW",
+      "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "install": {"kind": "direct", "handler": "opencrow-reversing-mcp"},
+      "verify": {"kind": "command", "value": "opencrow-reversing-mcp"}
     },
     {
       "id": "scapy",

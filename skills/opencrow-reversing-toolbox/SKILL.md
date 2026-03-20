@@ -5,6 +5,19 @@ description: Use the Anaconda `ctf` environment and installed reverse-engineerin
 
 # OpenCROW Reversing Toolbox
 
+Prefer the `opencrow-reversing-mcp` server for typed disassembly, tracing, gadget search, and Python-driven analysis. Fall back to the direct scripts only when you need to debug the underlying `ctf`-environment execution path.
+
+## MCP First
+
+- Use `toolbox_info`, `toolbox_verify`, and `toolbox_capabilities` first.
+- Use the typed reversing operations:
+  - `reversing_python`
+  - `reversing_disassemble`
+  - `reversing_trace`
+  - `reversing_binwalk`
+  - `reversing_gadget_search`
+- Treat the existing helper scripts as the implementation fallback, not the primary interface.
+
 Use this skill for understanding binaries rather than exploiting them: disassembly, decompilation support, tracing, symbolic execution, emulation, dynamic instrumentation, gadget analysis, and binary rewriting in the `ctf` environment.
 
 ## Quick Start

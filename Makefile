@@ -47,6 +47,9 @@ smoke:
 	bash -n scripts/opencrow-forensics-mcp
 	bash -n scripts/opencrow-osint-mcp
 	bash -n scripts/opencrow-web-mcp
+	bash -n scripts/opencrow-crypto-mcp
+	bash -n scripts/opencrow-pwn-mcp
+	bash -n scripts/opencrow-reversing-mcp
 	bash -n scripts/opencrow-netcat-mcp
 	bash -n scripts/opencrow-ssh-mcp
 	bash -n scripts/opencrow-minecraft-mcp
@@ -54,7 +57,11 @@ smoke:
 	python3 -m py_compile scripts/install_cli.py
 	python3 -m py_compile scripts/check_mcp_server.py
 	python3 -m py_compile scripts/opencrow_mcp_core.py
+	python3 -m py_compile scripts/opencrow_ctf_mcp_common.py
 	python3 -m py_compile scripts/opencrow_io_mcp_common.py
+	python3 -m py_compile scripts/opencrow_crypto_mcp.py
+	python3 -m py_compile scripts/opencrow_pwn_mcp.py
+	python3 -m py_compile scripts/opencrow_reversing_mcp.py
 	python3 -m py_compile scripts/opencrow_stego_mcp.py
 	python3 -m py_compile scripts/opencrow_forensics_mcp.py
 	python3 -m py_compile scripts/opencrow_osint_mcp.py

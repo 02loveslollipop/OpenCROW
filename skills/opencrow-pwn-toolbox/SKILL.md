@@ -5,6 +5,19 @@ description: Use the Anaconda `ctf` environment and installed exploit tooling fo
 
 # OpenCROW Pwn Toolbox
 
+Prefer the `opencrow-pwn-mcp` server for typed ELF triage, cyclic work, patching, and one-gadget search. Fall back to the direct scripts only when you need to debug the underlying `ctf`-environment execution path.
+
+## MCP First
+
+- Use `toolbox_info`, `toolbox_verify`, and `toolbox_capabilities` first.
+- Use the typed pwn operations:
+  - `pwn_python`
+  - `pwn_checksec`
+  - `pwn_cyclic`
+  - `pwn_patch_binary`
+  - `pwn_one_gadget`
+- Treat the existing helper scripts as the implementation fallback, not the primary interface.
+
 Use this skill for exploit development, ELF triage, debugger-heavy workflows, loader/libc patching, one-gadget hunting, and architecture-emulated pwn work in the `ctf` environment.
 
 ## Quick Start

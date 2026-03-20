@@ -86,3 +86,9 @@ The next migration wave extends the same contract to OpenCROW I/O helpers:
 1. `netcat-async`
 2. `ssh-async`
 3. `minecraft-async`
+
+The current wave after I/O extends the same contract to the larger Python-heavy toolboxes:
+
+1. `opencrow-crypto-toolbox`
+2. `opencrow-pwn-toolbox`
+3. `opencrow-reversing-toolbox`

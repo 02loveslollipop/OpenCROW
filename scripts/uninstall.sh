@@ -214,6 +214,18 @@ uninstall_direct_handler() {
       run_as_target rm -f "$TARGET_HOME/.local/bin/opencrow-web-mcp"
       run_as_target rm -rf "$TARGET_HOME/.local/opt/opencrow-web-mcp"
       ;;
+    opencrow-crypto-mcp)
+      run_as_target rm -f "$TARGET_HOME/.local/bin/opencrow-crypto-mcp"
+      run_as_target rm -rf "$TARGET_HOME/.local/opt/opencrow-crypto-mcp"
+      ;;
+    opencrow-pwn-mcp)
+      run_as_target rm -f "$TARGET_HOME/.local/bin/opencrow-pwn-mcp"
+      run_as_target rm -rf "$TARGET_HOME/.local/opt/opencrow-pwn-mcp"
+      ;;
+    opencrow-reversing-mcp)
+      run_as_target rm -f "$TARGET_HOME/.local/bin/opencrow-reversing-mcp"
+      run_as_target rm -rf "$TARGET_HOME/.local/opt/opencrow-reversing-mcp"
+      ;;
     opencrow-netcat-mcp)
       run_as_target rm -f "$TARGET_HOME/.local/bin/opencrow-netcat-mcp"
       run_as_target rm -rf "$TARGET_HOME/.local/opt/opencrow-netcat-mcp"
