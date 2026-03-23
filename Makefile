@@ -42,6 +42,7 @@ smoke:
 	bash -n scripts/verify.sh
 	bash -n scripts/uninstall.sh
 	bash -n scripts/sync_skills.sh
+	bash -n scripts/sync_gemini_mcp_config.sh
 	bash -n scripts/remove_skills.sh
 	bash -n scripts/opencrow-stego-mcp
 	bash -n scripts/opencrow-forensics-mcp

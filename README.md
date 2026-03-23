@@ -164,6 +164,8 @@ OpenCROW toolbox MCP servers follow one shared contract:
 - the same contract also applies to session-oriented I/O helpers
 - provider-neutral typed tools, not Codex-specific shell wrappers
 - common tools on every server: `toolbox_info`, `toolbox_self_test`, `toolbox_verify`, `toolbox_capabilities`
+- common resources on every server: `opencrow://<server>/server`, `opencrow://<server>/capabilities`, and `opencrow://<server>/verify-guide`
+- common resource template on every server: `opencrow://<server>/tools/{name}`
 - shared response envelope with `ok`, `summary`, `toolbox`, `operation`, `inputs`, `artifacts`, `observations`, `command`, `stdout`, `stderr`, `exit_code`, and `next_steps`
 
 Architecture details and contract rules live in [doc/MCP_ARCHITECTURE.md](doc/MCP_ARCHITECTURE.md).
@@ -186,6 +188,7 @@ bash ./scripts/install_headless.sh --tool one_gadget --tool zsteg
 bash ./scripts/install_headless.sh --toolbox opencrow-network-toolbox --replace-selection --profile headless
 bash ./scripts/update_headless.sh --toolbox opencrow-web-toolbox --profile headless
 python3 ./scripts/sync_codex_mcp_config.py
+bash ./scripts/sync_gemini_mcp_config.sh
 ```
 
 ## `opencrow-autosetup`
