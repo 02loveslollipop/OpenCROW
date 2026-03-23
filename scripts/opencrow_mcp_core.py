@@ -5,16 +5,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote, urlsplit
 
 
 JSON = dict[str, Any]
 Handler = Callable[[JSON], JSON]
+ResourceHandler = Callable[[str], list[JSON]]
+TemplateHandler = Callable[[str, dict[str, str]], list[JSON]]
 SUPPORTED_PROTOCOL_VERSIONS = (
     "2024-11-05",
     "2025-03-26",
@@ -22,6 +26,8 @@ SUPPORTED_PROTOCOL_VERSIONS = (
     "2025-11-25",
 )
 DEFAULT_PROTOCOL_VERSION = "2024-11-05"
+CONTENT_LENGTH_FRAMING = "content-length"
+JSON_LINE_FRAMING = "json-line"
 
 
 @dataclass(frozen=True)
@@ -30,6 +36,24 @@ class MCPTool:
     description: str
     input_schema: JSON
     handler: Handler
+
+
+@dataclass(frozen=True)
+class MCPResource:
+    uri: str
+    name: str
+    description: str
+    mime_type: str
+    handler: ResourceHandler
+
+
+@dataclass(frozen=True)
+class MCPResourceTemplate:
+    uri_template: str
+    name: str
+    description: str
+    mime_type: str
+    handler: TemplateHandler
 
 
 def normalize_path(value: str | Path | None) -> str | None:
@@ -181,6 +205,89 @@ def serialize_tool_result(envelope: JSON) -> JSON:
     }
 
 
+def text_resource_contents(uri: str, text: str, *, mime_type: str = "text/plain") -> list[JSON]:
+    return [
+        {
+            "uri": uri,
+            "mimeType": mime_type,
+            "text": text,
+        }
+    ]
+
+
+def json_resource_contents(uri: str, payload: Any) -> list[JSON]:
+    return text_resource_contents(uri, json.dumps(payload, indent=2, sort_keys=True), mime_type="application/json")
+
+
+def static_text_resource(
+    *,
+    uri: str,
+    name: str,
+    description: str,
+    text: str | Callable[[], str],
+    mime_type: str = "text/plain",
+) -> MCPResource:
+    def handler(resource_uri: str) -> list[JSON]:
+        value = text() if callable(text) else text
+        return text_resource_contents(resource_uri, value, mime_type=mime_type)
+
+    return MCPResource(
+        uri=uri,
+        name=name,
+        description=description,
+        mime_type=mime_type,
+        handler=handler,
+    )
+
+
+def static_json_resource(
+    *,
+    uri: str,
+    name: str,
+    description: str,
+    payload: Any | Callable[[], Any],
+) -> MCPResource:
+    def handler(resource_uri: str) -> list[JSON]:
+        value = payload() if callable(payload) else payload
+        return json_resource_contents(resource_uri, value)
+
+    return MCPResource(
+        uri=uri,
+        name=name,
+        description=description,
+        mime_type="application/json",
+        handler=handler,
+    )
+
+
+def match_uri_template(uri_template: str, uri: str) -> dict[str, str] | None:
+    template_parts = urlsplit(uri_template)
+    uri_parts = urlsplit(uri)
+    if (
+        template_parts.scheme != uri_parts.scheme
+        or template_parts.netloc != uri_parts.netloc
+        or template_parts.query != uri_parts.query
+        or template_parts.fragment != uri_parts.fragment
+    ):
+        return None
+
+    template_segments = [segment for segment in template_parts.path.split("/") if segment]
+    uri_segments = [segment for segment in uri_parts.path.split("/") if segment]
+    if len(template_segments) != len(uri_segments):
+        return None
+
+    params: dict[str, str] = {}
+    for template_segment, uri_segment in zip(template_segments, uri_segments):
+        match = re.fullmatch(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", template_segment)
+        if match is not None:
+            params[match.group(1)] = unquote(uri_segment)
+            continue
+        if template_segment != uri_segment:
+            return None
+
+    return params
+
+
 def make_toolbox_info_handler(
     *,
     toolbox: str,
@@ -268,6 +375,9 @@ class StdioMCPServer:
         self.server_version = server_version
         self.instructions = instructions
         self.tools: dict[str, MCPTool] = {}
+        self.resources: dict[str, MCPResource] = {}
+        self.resource_templates: list[MCPResourceTemplate] = []
+        self._message_framing = CONTENT_LENGTH_FRAMING
 
     def register_tool(self, tool: MCPTool) -> None:
         self.tools[tool.name] = tool
@@ -275,6 +385,20 @@ class StdioMCPServer:
     def register_tools(self, tools: list[MCPTool]) -> None:
         for tool in tools:
             self.register_tool(tool)
+
+    def register_resource(self, resource: MCPResource) -> None:
+        self.resources[resource.uri] = resource
+
+    def register_resources(self, resources: list[MCPResource]) -> None:
+        for resource in resources:
+            self.register_resource(resource)
+
+    def register_resource_template(self, resource_template: MCPResourceTemplate) -> None:
+        self.resource_templates.append(resource_template)
+
+    def register_resource_templates(self, resource_templates: list[MCPResourceTemplate]) -> None:
+        for resource_template in resource_templates:
+            self.register_resource_template(resource_template)
 
     def _tool_descriptors(self) -> list[JSON]:
         return [
@@ -285,6 +409,143 @@ class StdioMCPServer:
             }
             for tool in self.tools.values()
         ]
+
+    def _base_resource_uri(self) -> str:
+        return f"opencrow://{self.server_name}"
+
+    def _builtin_resources(self) -> dict[str, MCPResource]:
+        base_uri = self._base_resource_uri()
+        return {
+            f"{base_uri}/server": static_json_resource(
+                uri=f"{base_uri}/server",
+                name=f"{self.server_name} server metadata",
+                description="Server metadata, instructions, and resource summary for this OpenCROW MCP server.",
+                payload=self._server_metadata_payload,
+            ),
+            f"{base_uri}/capabilities": static_json_resource(
+                uri=f"{base_uri}/capabilities",
+                name=f"{self.server_name} capabilities",
+                description="Structured tool, resource, and template descriptors for this OpenCROW MCP server.",
+                payload=self._capabilities_payload,
+            ),
+            f"{base_uri}/verify-guide": static_text_resource(
+                uri=f"{base_uri}/verify-guide",
+                name=f"{self.server_name} verification guide",
+                description="Quick usage guidance for readiness checks, capability inspection, and typed tool execution.",
+                text=self._verify_guide_text,
+                mime_type="text/markdown",
+            ),
+        }
+
+    def _builtin_resource_templates(self) -> list[MCPResourceTemplate]:
+        base_uri = self._base_resource_uri()
+        return [
+            MCPResourceTemplate(
+                uri_template=f"{base_uri}/tools/{{name}}",
+                name=f"{self.server_name} tool descriptor",
+                description="Read the full descriptor, schema, and usage hints for a named MCP tool exposed by this server.",
+                mime_type="application/json",
+                handler=self._read_builtin_tool_template,
+            )
+        ]
+
+    def _all_resources(self) -> dict[str, MCPResource]:
+        resources = self._builtin_resources()
+        resources.update(self.resources)
+        return resources
+
+    def _all_resource_templates(self) -> list[MCPResourceTemplate]:
+        return [*self._builtin_resource_templates(), *self.resource_templates]
+
+    def _resource_descriptors(self) -> list[JSON]:
+        return [
+            {
+                "uri": resource.uri,
+                "name": resource.name,
+                "description": resource.description,
+                "mimeType": resource.mime_type,
+            }
+            for resource in self._all_resources().values()
+        ]
+
+    def _resource_template_descriptors(self) -> list[JSON]:
+        return [
+            {
+                "uriTemplate": resource_template.uri_template,
+                "name": resource_template.name,
+                "description": resource_template.description,
+                "mimeType": resource_template.mime_type,
+            }
+            for resource_template in self._all_resource_templates()
+        ]
+
+    def _server_metadata_payload(self) -> JSON:
+        return {
+            "serverInfo": {
+                "name": self.server_name,
+                "version": self.server_version,
+            },
+            "instructions": self.instructions or "",
+            "counts": {
+                "tools": len(self.tools),
+                "resources": len(self._all_resources()),
+                "resource_templates": len(self._all_resource_templates()),
+            },
+        }
+
+    def _capabilities_payload(self) -> JSON:
+        return {
+            "serverInfo": {
+                "name": self.server_name,
+                "version": self.server_version,
+            },
+            "tools": self._tool_descriptors(),
+            "resources": self._resource_descriptors(),
+            "resourceTemplates": self._resource_template_descriptors(),
+        }
+
+    def _verify_guide_text(self) -> str:
+        lines = [
+            f"# {self.server_name}",
+            "",
+            "- Call `toolbox_self_test` for a lightweight readiness probe.",
+            "- Call `toolbox_verify` when you need dependency or environment diagnostics.",
+            "- Read the `/capabilities` resource for the structured tool and resource catalog.",
+            "- Read `opencrow://{self.server_name}/tools/<tool-name>` for a tool-specific schema snapshot.",
+        ]
+        if self.instructions:
+            lines.extend(["", "## Instructions", "", self.instructions])
+        return "\n".join(lines)
+
+    def _read_builtin_tool_template(self, uri: str, params: dict[str, str]) -> list[JSON]:
+        tool_name = params.get("name", "").strip()
+        tool = self.tools.get(tool_name)
+        if tool is None:
+            raise KeyError(f"Unknown tool resource: {tool_name}")
+        payload = {
+            "serverInfo": {
+                "name": self.server_name,
+                "version": self.server_version,
+            },
+            "tool": {
+                "name": tool.name,
+                "description": tool.description,
+                "inputSchema": tool.input_schema,
+            },
+        }
+        return json_resource_contents(uri, payload)
+
+    def _read_resource(self, uri: str) -> list[JSON]:
+        resource = self._all_resources().get(uri)
+        if resource is not None:
+            return resource.handler(uri)
+
+        for resource_template in self._all_resource_templates():
+            params = match_uri_template(resource_template.uri_template, uri)
+            if params is not None:
+                return resource_template.handler(uri, params)
+
+        raise KeyError(f"Unknown resource: {uri}")
 
     def serve(self) -> int:
         stdin = sys.stdin.buffer
@@ -320,6 +581,10 @@ class StdioMCPServer:
                     "protocolVersion": protocol_version,
                     "capabilities": {
                         "tools": {},
+                        "resources": {
+                            "subscribe": False,
+                            "listChanged": False,
+                        },
                     },
                     "serverInfo": {
                         "name": self.server_name,
@@ -352,6 +617,24 @@ class StdioMCPServer:
                 )
             return self._result(request_id, serialize_tool_result(envelope))
 
+        if method == "resources/list":
+            return self._result(request_id, {"resources": self._resource_descriptors()})
+
+        if method == "resources/templates/list":
+            return self._result(request_id, {"resourceTemplates": self._resource_template_descriptors()})
+
+        if method == "resources/read":
+            uri = params.get("uri")
+            if not isinstance(uri, str) or not uri.strip():
+                return self._error(request_id, -32602, "A non-empty `uri` is required.")
+            try:
+                contents = self._read_resource(uri.strip())
+            except KeyError as exc:
+                return self._error(request_id, -32602, str(exc))
+            except Exception as exc:  # pragma: no cover - defensive server path
+                return self._error(request_id, -32603, f"Unhandled exception while reading resource: {exc}")
+            return self._result(request_id, {"contents": contents})
+
         return self._error(request_id, -32601, f"Method not found: {method}")
 
     @staticmethod
@@ -369,37 +652,60 @@ class StdioMCPServer:
             },
         }
 
-    @staticmethod
-    def _read_message(stream: Any) -> JSON | None:
-        headers: dict[str, str] = {}
-
+    def _read_message(self, stream: Any) -> JSON | None:
         while True:
             line = stream.readline()
             if not line:
                 return None
             if line in (b"\r\n", b"\n"):
-                break
-            decoded = line.decode("utf-8").strip()
-            if not decoded:
-                break
+                continue
+
+            stripped = line.rstrip(b"\r\n")
+            if not stripped:
+                continue
+
+            if stripped.lstrip().startswith((b"{", b"[")):
+                self._message_framing = JSON_LINE_FRAMING
+                return json.loads(stripped.decode("utf-8"))
+
+            headers: dict[str, str] = {}
+            decoded = stripped.decode("utf-8").strip()
             name, value = decoded.split(":", 1)
             headers[name.lower()] = value.strip()
 
-        content_length = int(headers.get("content-length", "0"))
-        if content_length <= 0:
-            return None
+            while True:
+                header_line = stream.readline()
+                if not header_line:
+                    return None
+                if header_line in (b"\r\n", b"\n"):
+                    break
+                header_text = header_line.decode("utf-8").strip()
+                if not header_text:
+                    break
+                header_name, header_value = header_text.split(":", 1)
+                headers[header_name.lower()] = header_value.strip()
 
-        body = stream.read(content_length)
-        if not body:
-            return None
-        return json.loads(body.decode("utf-8"))
+            self._message_framing = CONTENT_LENGTH_FRAMING
+            content_length = int(headers.get("content-length", "0"))
+            if content_length <= 0:
+                return None
 
-    @staticmethod
-    def _write_message(stream: Any, payload: JSON) -> None:
-        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        header = f"Content-Length: {len(body)}\r\nContent-Type: application/json\r\n\r\n".encode("utf-8")
+            body = stream.read(content_length)
+            if not body:
+                return None
+            return json.loads(body.decode("utf-8"))
+
+    def _write_message(self, stream: Any, payload: JSON) -> None:
+        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        if self._message_framing == JSON_LINE_FRAMING:
+            stream.write((body + "\n").encode("utf-8"))
+            stream.flush()
+            return
+
+        encoded_body = body.encode("utf-8")
+        header = f"Content-Length: {len(encoded_body)}\r\nContent-Type: application/json\r\n\r\n".encode("utf-8")
         stream.write(header)
-        stream.write(body)
+        stream.write(encoded_body)
         stream.flush()
 
 

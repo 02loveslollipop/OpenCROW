@@ -8,10 +8,12 @@ import sys
 from opencrow_io_mcp_common import parse_json_stdout, run_backend_script
 from opencrow_mcp_core import (
     MCPTool,
+    MCPResourceTemplate,
     StdioMCPServer,
     command_exists,
     default_execution,
     error_envelope,
+    json_resource_contents,
     make_toolbox_capabilities_handler,
     make_toolbox_info_handler,
     make_toolbox_self_test_handler,
@@ -70,6 +72,34 @@ def _minecraft_artifacts(status_payload: dict[str, object] | None) -> list[str]:
             if isinstance(value, str) and value.startswith("/"):
                 artifacts.append(value)
     return artifacts
+
+
+def _read_session_status_resource(uri: str, params: dict[str, str]) -> list[dict[str, object]]:
+    session = params.get("name", "").strip() or "default"
+    result, payload = _run_status({"session": session})
+    return json_resource_contents(
+        uri,
+        {
+            "session": session,
+            "backend_script": BACKEND_SCRIPT,
+            "ok": result["ok"],
+            "status": payload,
+            "stderr": result["stderr"],
+            "exit_code": result["exit_code"],
+        },
+    )
+
+
+def _read_session_artifacts_resource(uri: str, params: dict[str, str]) -> list[dict[str, object]]:
+    session = params.get("name", "").strip() or "default"
+    _, payload = _run_status({"session": session})
+    return json_resource_contents(
+        uri,
+        {
+            "session": session,
+            "artifacts": _minecraft_artifacts(payload),
+        },
+    )
 
 
 def toolbox_verify(arguments: dict[str, object]) -> dict[str, object]:
@@ -491,6 +521,24 @@ def build_server() -> StdioMCPServer:
                 description="Stop the managed Minecraft session.",
                 input_schema={"type": "object", "properties": {"session": {"type": "string"}, "execution": {"type": "object"}}},
                 handler=minecraft_stop,
+            ),
+        ]
+    )
+    server.register_resource_templates(
+        [
+            MCPResourceTemplate(
+                uri_template=f"opencrow://{SERVER_NAME}/sessions/{{name}}/status",
+                name="Minecraft session status",
+                description="Read status metadata for a named managed Minecraft session.",
+                mime_type="application/json",
+                handler=_read_session_status_resource,
+            ),
+            MCPResourceTemplate(
+                uri_template=f"opencrow://{SERVER_NAME}/sessions/{{name}}/artifacts",
+                name="Minecraft session artifacts",
+                description="Read the current artifact paths for a named managed Minecraft session.",
+                mime_type="application/json",
+                handler=_read_session_artifacts_resource,
             ),
         ]
     )

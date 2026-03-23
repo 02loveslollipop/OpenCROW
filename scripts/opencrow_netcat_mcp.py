@@ -9,9 +9,11 @@ from pathlib import Path
 from opencrow_io_mcp_common import parse_json_stdout, run_backend_script, session_artifact_paths
 from opencrow_mcp_core import (
     MCPTool,
+    MCPResourceTemplate,
     StdioMCPServer,
     default_execution,
     error_envelope,
+    json_resource_contents,
     make_toolbox_capabilities_handler,
     make_toolbox_info_handler,
     make_toolbox_self_test_handler,
@@ -37,6 +39,42 @@ OPERATIONS = [
 def _run_status(name: str, cwd: str | Path | None, timeout_sec: int) -> tuple[dict[str, object], dict[str, object] | None]:
     result = run_backend_script(BACKEND_SCRIPT, ["status", "--name", name], cwd=cwd, timeout_sec=timeout_sec)
     return result, parse_json_stdout(result)
+
+
+def _session_artifact_snapshot(name: str) -> list[dict[str, object]]:
+    return [
+        {"path": path, "exists": Path(path).exists()}
+        for path in session_artifact_paths(SESSION_BASE_DIR, name)
+    ]
+
+
+def _read_session_status_resource(uri: str, params: dict[str, str]) -> list[dict[str, object]]:
+    name = params.get("name", "").strip()
+    result, payload = _run_status(name, None, 30)
+    return json_resource_contents(
+        uri,
+        {
+            "name": name,
+            "backend_script": BACKEND_SCRIPT,
+            "base_dir": SESSION_BASE_DIR,
+            "ok": result["ok"],
+            "status": payload,
+            "stderr": result["stderr"],
+            "exit_code": result["exit_code"],
+        },
+    )
+
+
+def _read_session_artifacts_resource(uri: str, params: dict[str, str]) -> list[dict[str, object]]:
+    name = params.get("name", "").strip()
+    return json_resource_contents(
+        uri,
+        {
+            "name": name,
+            "base_dir": SESSION_BASE_DIR,
+            "artifacts": _session_artifact_snapshot(name),
+        },
+    )
 
 
 def toolbox_verify(arguments: dict[str, object]) -> dict[str, object]:
@@ -424,6 +462,24 @@ def build_server() -> StdioMCPServer:
                     },
                 },
                 handler=session_stop,
+            ),
+        ]
+    )
+    server.register_resource_templates(
+        [
+            MCPResourceTemplate(
+                uri_template=f"opencrow://{SERVER_NAME}/sessions/{{name}}/status",
+                name="Netcat session status",
+                description="Read status metadata for a named asynchronous TCP session.",
+                mime_type="application/json",
+                handler=_read_session_status_resource,
+            ),
+            MCPResourceTemplate(
+                uri_template=f"opencrow://{SERVER_NAME}/sessions/{{name}}/artifacts",
+                name="Netcat session artifacts",
+                description="Read the expected artifact paths and existence state for a named asynchronous TCP session.",
+                mime_type="application/json",
+                handler=_read_session_artifacts_resource,
             ),
         ]
     )

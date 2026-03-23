@@ -12,7 +12,7 @@ This document defines the contract for OpenCROW toolbox and I/O MCP servers.
 - Each operation must surface the underlying command or execution summary when applicable.
 - Missing dependencies, missing credentials, invalid inputs, and timeouts must return structured error envelopes instead of raw tracebacks.
 
-## Common Tools
+## Common Surfaces
 
 Every toolbox server must expose the same common tools:
 
@@ -25,6 +25,20 @@ These tools must keep the same semantics across all toolbox and I/O servers.
 
 - `toolbox_self_test` is the lightweight readiness probe for boot-time MCP checks. It must not perform dependency discovery or environment scans.
 - `toolbox_verify` is the heavier dependency report and should be reserved for explicit diagnostics after the server is already up.
+
+Every server must also expose MCP resources:
+
+- static metadata resources for server info, capabilities, and verification guidance
+- at least one resource template for tool- or domain-specific lookups
+
+The shared v1 defaults are:
+
+- `opencrow://<server>/server`
+- `opencrow://<server>/capabilities`
+- `opencrow://<server>/verify-guide`
+- `opencrow://<server>/tools/{name}`
+
+Session-oriented I/O servers should add templates for live session state or artifacts when the domain has stable named sessions.
 
 ## Response Envelope
 
@@ -44,6 +58,8 @@ Every MCP tool call returns a single JSON object encoded as text content with th
 - `next_steps`
 
 The envelope is the canonical contract. The human-readable text in `summary` is only a compact view of the structured result.
+
+Resource reads should return structured text or JSON content with stable URIs and MIME types. Resource payloads do not use the tool-call envelope.
 
 ## Input Shape
 
@@ -66,6 +82,7 @@ The envelope is the canonical contract. The human-readable text in `summary` is 
 - Session state, managed logs, and generated captures must be surfaced through `artifacts`.
 - Session servers must preserve reproducibility by reporting the managed backend command or execution summary in `command`.
 - Long-lived reads should expose bounded snapshots by default and require an explicit follow/streaming mode when supported.
+- Session-oriented servers should expose resource templates for stable session lookups, such as named status or artifact views.
 
 ## Execution Rules
 
