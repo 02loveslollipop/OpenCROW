@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE_PATH" ]]; do
+  SOURCE_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+  SOURCE_PATH="$(readlink "$SOURCE_PATH")"
+  [[ "$SOURCE_PATH" != /* ]] && SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE_PATH")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: opencrow-constellation-client <subcommand> [args...]
+
+Subcommands:
+  join   Join a Constellation topic from the current workspace.
+  admin  Claim master capability using a UI-issued single-use password.
+  mcp    Run the Constellation stdio MCP client.
+
+Examples:
+  opencrow-constellation-client join challenge-web-1
+  opencrow-constellation-client admin challenge-web-1 <single-use-password>
+  opencrow-constellation-client mcp
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 1
+fi
+
+case "$1" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  join)
+    shift
+    exec "$SCRIPT_DIR/opencrow-constellation-join" "$@"
+    ;;
+  admin)
+    shift
+    exec "$SCRIPT_DIR/opencrow-constellation-admin" "$@"
+    ;;
+  mcp)
+    shift
+    exec "$SCRIPT_DIR/opencrow-constellation-mcp" "$@"
+    ;;
+  *)
+    printf 'Unknown subcommand: %s\n\n' "$1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

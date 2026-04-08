@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+
+COPY requirements-constellation.txt /tmp/requirements-constellation.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-constellation.txt
+
+COPY constellation /app/constellation
+
+EXPOSE 8787
+CMD ["python", "-m", "constellation.backend"]

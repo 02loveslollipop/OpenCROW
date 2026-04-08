@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}OpenCROW Constellation{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='constellation.css') }}">
+  </head>
+  <body>
+    <header class="shell">
+      <div>
+        <h1><a href="{{ url_for('index') }}">OpenCROW - Constellation</a></h1>
+        {% if display_name %}
+        <p class="subtle">Signed in as {{ display_name }}</p>
+        {% endif %}
+      </div>
+      {% if session.get("token") %}
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit">Logout</button>
+      </form>
+      {% endif %}
+    </header>
+    <main class="shell">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+      {% block body %}{% endblock %}
+    </main>
+  </body>
+</html>

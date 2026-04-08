@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.title }} | OpenCROW Constellation{% endblock %}
+{% block body %}
+<section class="grid topic-grid">
+  <section class="panel">
+    <h2>{{ topic.title }}</h2>
+    <p class="subtle">{{ topic.slug }} · {{ topic.category }}</p>
+    <form method="post" action="{{ url_for('update_topic', topic=topic.slug) }}" class="stack">
+      <label>
+        <span>Title</span>
+        <input type="text" name="title" value="{{ topic.title }}">
+      </label>
+      <label>
+        <span>Category</span>
+        <input type="text" name="category" value="{{ topic.category }}">
+      </label>
+      <label>
+        <span>Description</span>
+        <textarea name="description" rows="8">{{ topic.description }}</textarea>
+      </label>
+      <label>
+        <span>Handoff URLs</span>
+        <textarea name="handoff_urls" rows="5">{% for url in topic.handoff_urls %}{{ url }}{% if not loop.last %}\n{% endif %}{% endfor %}</textarea>
+      </label>
+      <button type="submit">Save topic</button>
+    </form>
+    <div class="button-row">
+      <form method="post" action="{{ url_for('regenerate_admin', topic=topic.slug) }}">
+        <button type="submit">Generate single-use admin password</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_topic', topic=topic.slug) }}" onsubmit="return confirm('Delete this topic permanently?');">
+        <button type="submit" class="danger">Delete topic</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Master Console</h2>
+    <form method="post" action="{{ url_for('send_message', topic=topic.slug) }}" class="stack">
+      <label>
+        <span>Message type</span>
+        <select name="message_type">
+          <option value="chat_message">Chat</option>
+          <option value="task_directive">Task directive</option>
+          <option value="broadcast_event">Broadcast</option>
+        </select>
+      </label>
+      <label>
+        <span>Body</span>
+        <textarea name="body" rows="6" required></textarea>
+      </label>
+      <button type="submit">Send</button>
+    </form>
+  </section>
+</section>
+
+<section class="grid topic-grid">
+  <section class="panel">
+    <h2>History</h2>
+    <ul id="history-list" class="history-list">
+      {% for item in history %}
+      <li>
+        <strong>{{ item.type }}</strong>
+        <span class="subtle">{{ item.sender.display_name }} · {{ item.created_at }}</span>
+        <pre>{{ item.body }}</pre>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>Unified Corpus</h2>
+    <ul class="doc-list">
+      {% for doc in documents %}
+      <li>
+        <strong>{{ doc.display_name }}</strong>
+        <span>{{ doc.relative_path }}</span>
+        <span class="subtle">{{ doc.updated_at }}</span>
+      </li>
+      {% else %}
+      <li class="subtle">No synced markdown documents yet.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="panel">
+    <h2>Final Artifacts</h2>
+    <ul class="artifact-list">
+      {% for artifact in artifacts %}
+      <li>
+        <strong>{{ artifact.display_name }}</strong>
+        <span class="subtle">{{ artifact.created_at }}</span>
+        <div>Flag: <code>{{ artifact.flag }}</code></div>
+        <ul class="flat-files">
+          {% for file in artifact.files %}
+          <li>
+            <a href="{{ url_for('download_file', file_id=file.file_id) }}">{{ file.name }}</a>
+            <span class="subtle">{{ file.role }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </li>
+      {% else %}
+      <li class="subtle">No immutable final artifacts uploaded yet.</li>
+      {% endfor %}
+    </ul>
+  </section>
+</section>
+
+<script>
+  (() => {
+    const wsUrl = {{ ws_url|tojson }};
+    const historyList = document.getElementById("history-list");
+    const socket = new WebSocket(wsUrl);
+
+    function appendMessage(item) {
+      if (!historyList) {
+        return;
+      }
+      const node = document.createElement("li");
+      const sender = item.payload?.sender?.display_name || item.payload?.display_name || "system";
+      const body = item.payload?.body || JSON.stringify(item.payload || {});
+      const createdAt = item.created_at || item.payload?.created_at || "";
+      node.innerHTML = `<strong>${item.payload?.type || item.event_type}</strong><span class="subtle">${sender} · ${createdAt}</span><pre>${body}</pre>`;
+      historyList.prepend(node);
+    }
+
+    socket.onmessage = (event) => {
+      const payload = JSON.parse(event.data);
+      if (payload.event_type === "message") {
+        appendMessage(payload);
+      } else if (payload.event_type === "topic_deleted") {
+        alert("This topic was deleted.");
+        window.location.href = {{ url_for('index')|tojson }};
+      }
+    };
+  })();
+</script>
+{% endblock %}
