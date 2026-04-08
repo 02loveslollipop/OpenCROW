@@ -82,6 +82,7 @@ I/O MCP servers:
 - `opencrow-netcat-mcp`
 - `opencrow-ssh-mcp`
 - `opencrow-minecraft-mcp`
+- `opencrow-constellation-mcp`
 
 Tracked as manual full-profile steps today:
 
@@ -147,6 +148,7 @@ Installed I/O MCP commands:
 - `opencrow-netcat-mcp`: MCP bridge for the managed TCP session backend
 - `opencrow-ssh-mcp`: MCP bridge for the managed SSH session backend
 - `opencrow-minecraft-mcp`: MCP bridge for managed local Minecraft launch, logs, screenshots, and X11 actions
+- `opencrow-constellation-mcp`: MCP bridge for Constellation topic membership, live chat/task/broadcast traffic, corpus sync, and final artifact upload
 
 Installed toolbox MCP commands:
 
@@ -170,6 +172,38 @@ OpenCROW toolbox MCP servers follow one shared contract:
 - optional `execution.transcript_path` support for long-running workflows that should append JSONL transcript artifacts
 
 Architecture details and contract rules live in [doc/MCP_ARCHITECTURE.md](doc/MCP_ARCHITECTURE.md).
+
+## OpenCROW Constellation
+
+OpenCROW Constellation is a new topic-oriented coordination extension for multi-agent CTF work.
+
+Shipped surfaces:
+
+- `opencrow-constellation-client`: installable umbrella CLI with `join`, `admin`, and `mcp` subcommands
+- `opencrow-constellation-mcp`: stdio MCP client for joining topics, receiving live notifications, sending chat/task/broadcast messages, syncing markdown corpus snapshots, and uploading immutable final artifacts
+- `opencrow-constellation-join`: joins a topic from the current workspace, materializes a local private-or-public prompt into `.opencrow-constellation/`, starts a markdown watcher, and launches Codex
+- `opencrow-constellation-admin`: consumes a UI-issued single-use password to upgrade the current workspace agent into a master-capable topic member
+- `constellation.backend`: Tornado backend with MongoDB persistence, GridFS final artifact storage, and Mongo change-stream-backed broker notifications
+- `constellation.ui`: Flask + Jinja UI for topic creation, metadata editing, chat/history, master messaging, admin-password generation, and destructive topic deletion
+
+Private prompt model:
+
+- the repo only ships a basic public Constellation prompt template under `constellation/prompts/constellation_public.md`
+- the real private prompt should be provided outside git through `OPENCROW_CONSTELLATION_PRIVATE_PROMPT` or `OPENCROW_CONSTELLATION_PRIVATE_PROMPT_FILE`
+- generated workspace prompt artifacts are written under `.opencrow-constellation/` and ignored by git
+
+Local orchestration:
+
+```bash
+docker compose -f docker-compose.constellation.yml up --build
+```
+
+Key runtime env vars:
+
+- `OPENCROW_CONSTELLATION_SYSTEM_TOKEN`
+- `OPENCROW_CONSTELLATION_MONGO_URI`
+- `OPENCROW_CONSTELLATION_PRIVATE_PROMPT_FILE`
+- `OPENCROW_CONSTELLATION_UI_SECRET_KEY`
 
 ## Install
 
@@ -266,6 +300,39 @@ opencrow-exploit
 opencrow-exploit --model gpt-5.4
 opencrow-exploit --full-auto
 opencrow-exploit --disable-sandbox
+```
+
+## `opencrow-constellation-join`
+
+`opencrow-constellation-join` attaches the current workspace to a Constellation topic, writes the generated prompt to `.opencrow-constellation/generated-prompt.md`, starts the markdown watcher, and launches a nested Codex session in the same directory.
+
+Examples:
+
+```bash
+opencrow-constellation-join challenge-crypto-1
+opencrow-constellation-join challenge-web-2 --agent-name my-laptop
+opencrow-constellation-join challenge-pwn-3 --full-auto --no-watcher
+opencrow-constellation-join challenge-misc-4 --dry-run
+```
+
+## `opencrow-constellation-admin`
+
+`opencrow-constellation-admin <topic> <single-use-password>` upgrades the current topic member into a master-capable agent after the password is generated in the Constellation UI.
+
+Example:
+
+```bash
+opencrow-constellation-admin challenge-web-2 s8eZ8zKQf0ExampleToken
+```
+
+## `opencrow-constellation-client`
+
+`opencrow-constellation-client` is the single installer-facing entry for the Constellation client bundle. It dispatches to the existing Constellation commands so the installer can expose one tool without hiding the lower-level entrypoints.
+
+```bash
+opencrow-constellation-client join challenge-crypto-1
+opencrow-constellation-client admin challenge-web-2 s8eZ8zKQf0ExampleToken
+opencrow-constellation-client mcp
 ```
 
 ## Verify

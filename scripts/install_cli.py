@@ -1429,6 +1429,75 @@ def install_opencrow_python_command(
     )
 
 
+def install_opencrow_constellation_bundle(ctx: InstallerContext) -> None:
+    install_dir = ctx.target_home / ".local/opt/opencrow-constellation"
+    completion_dir = ctx.target_home / ".local/share/bash-completion/completions"
+    local_bin = ctx.target_home / ".local/bin"
+    source_scripts = [
+        "opencrow-constellation-client",
+        "opencrow_constellation_join.py",
+        "opencrow_constellation_admin.py",
+        "opencrow_constellation_mcp.py",
+        "opencrow_constellation_watcher.py",
+        "opencrow-constellation-join",
+        "opencrow-constellation-admin",
+        "opencrow-constellation-mcp",
+        "opencrow-constellation-join.bash-completion",
+        "opencrow-constellation-admin.bash-completion",
+        "opencrow_mcp_core.py",
+    ]
+
+    run_as_target(ctx, ["mkdir", "-p", str(local_bin), str(completion_dir)])
+    run_as_target(ctx, ["rm", "-rf", str(install_dir)])
+    run_as_target(ctx, ["mkdir", "-p", str(install_dir)])
+
+    for script_name in source_scripts:
+        source_path = ROOT_DIR / "scripts" / script_name
+        mode = "755" if source_path.suffix in {"", ".py"} and "completion" not in script_name else "644"
+        run_as_target(ctx, ["install", "-m", mode, str(source_path), str(install_dir / source_path.name)])
+
+    run_as_target(
+        ctx,
+        ["install", "-m", "644", str(ROOT_DIR / "requirements-constellation.txt"), str(install_dir / "requirements-constellation.txt")],
+    )
+    run_as_target(ctx, ["cp", "-R", str(ROOT_DIR / "constellation"), str(install_dir / "constellation")])
+    run_as_target(ctx, ["python3", "-m", "venv", str(install_dir / ".venv")])
+    run_as_target(ctx, [str(install_dir / ".venv/bin/pip"), "install", "--upgrade", "pip"])
+    run_as_target(ctx, [str(install_dir / ".venv/bin/pip"), "install", "-r", str(install_dir / "requirements-constellation.txt")])
+
+    for command_name in (
+        "opencrow-constellation-client",
+        "opencrow-constellation-join",
+        "opencrow-constellation-admin",
+        "opencrow-constellation-mcp",
+    ):
+        run_as_target(
+            ctx,
+            ["ln", "-sfn", str(install_dir / command_name), str(local_bin / command_name)],
+        )
+
+    run_as_target(
+        ctx,
+        [
+            "install",
+            "-m",
+            "644",
+            str(ROOT_DIR / "scripts" / "opencrow-constellation-join.bash-completion"),
+            str(completion_dir / "opencrow-constellation-join"),
+        ],
+    )
+    run_as_target(
+        ctx,
+        [
+            "install",
+            "-m",
+            "644",
+            str(ROOT_DIR / "scripts" / "opencrow-constellation-admin.bash-completion"),
+            str(completion_dir / "opencrow-constellation-admin"),
+        ],
+    )
+
+
 def save_state_as_target(ctx: InstallerContext, catalog: tool_catalog.Catalog, selection: dict[str, object]) -> None:
     payload = {
         "env_name": ctx.env_name,
@@ -1634,6 +1703,14 @@ ln -sfn "$launcher" {shlex.quote(str(ctx.target_home / '.local/bin/autopsy'))}
             support_files=["opencrow_banner.py", "ascii_text.md"],
             completion_script="opencrow-exploit.bash-completion",
         )
+        return
+    if handler in {
+        "opencrow-constellation-client",
+        "opencrow-constellation-join",
+        "opencrow-constellation-admin",
+        "opencrow-constellation-mcp",
+    }:
+        install_opencrow_constellation_bundle(ctx)
         return
     if handler == "opencrow-stego-mcp":
         install_opencrow_python_command(
