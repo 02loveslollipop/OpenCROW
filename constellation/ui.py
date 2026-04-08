@@ -7,7 +7,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
 
-from flask import Flask, flash, redirect, render_template, request, session, url_for, Response
+from flask import Flask, Response, flash, redirect, render_template, request, session, stream_with_context, url_for
 
 from .client import ConstellationAPIClient, ConstellationAPIError
 from .config import ClientSettings, UISettings, load_ui_settings
@@ -36,9 +36,17 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
     app.secret_key = resolved_ui_settings.secret_key
     app.config["ui_settings"] = resolved_ui_settings
 
+    def _backend_client_headers() -> dict[str, str]:
+        if not resolved_ui_settings.shared_secret:
+            return {}
+        return {"X-Constellation-UI-Auth": resolved_ui_settings.shared_secret}
+
     def backend_client() -> ConstellationAPIClient:
         token = str(session.get("token", "")).strip()
-        return ConstellationAPIClient(_client_settings(resolved_ui_settings, token))
+        return ConstellationAPIClient(
+            _client_settings(resolved_ui_settings, token),
+            extra_headers=_backend_client_headers(),
+        )
 
     def require_login(view: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(view)
@@ -139,6 +147,7 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
             client_kind="ui",
             display_name=str(session.get("display_name") or resolved_ui_settings.default_display_name),
         )
+        ws_protocols = client.build_ws_subprotocols()
         return render_template(
             "topic.html",
             topic=topic_payload,
@@ -147,6 +156,7 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
             artifacts=artifacts,
             ui_member=ui_member,
             ws_url=ws_url,
+            ws_protocols=ws_protocols,
         )
 
     @app.post("/topics/<topic>/update")
@@ -220,13 +230,22 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
     @require_login
     def download_file(file_id: str) -> Response:
         client = backend_client()
-        response = client._request("GET", f"/files/{file_id}")
+        response = client._request("GET", f"/files/{file_id}", stream=True)
         headers = {}
         for name in ("Content-Type", "Content-Disposition"):
             value = response.headers.get(name)
             if value:
                 headers[name] = value
-        return Response(response.content, headers=headers)
+
+        def generate() -> Any:
+            try:
+                for chunk in response.iter_content(chunk_size=65536):
+                    if chunk:
+                        yield chunk
+            finally:
+                response.close()
+
+        return Response(stream_with_context(generate()), headers=headers, direct_passthrough=True)
 
     return app
 
@@ -249,6 +268,7 @@ def main() -> int:
             listen_port=args.port or settings.listen_port,
             secret_key=settings.secret_key,
             default_display_name=settings.default_display_name,
+            shared_secret=settings.shared_secret,
         )
     elif args.port:
         settings = UISettings(
@@ -258,6 +278,7 @@ def main() -> int:
             listen_port=args.port,
             secret_key=settings.secret_key,
             default_display_name=settings.default_display_name,
+            shared_secret=settings.shared_secret,
         )
     app = create_app(settings)
     app.run(host=settings.listen_host, port=settings.listen_port, debug=False)

@@ -94,16 +94,21 @@ def build_codex_command(
     *,
     codex_bin: str,
     workspace_dir: Path,
-    git_repo_root: Path | None,
     model: str | None,
     disable_sandbox: bool,
+    exec_mode: bool = False,
+    skip_git_repo_check: bool = False,
 ) -> list[str]:
     cmd = [codex_bin]
+    if exec_mode:
+        cmd.append("exec")
     cmd.extend(["-C", str(workspace_dir), "-c", "shell_environment_policy.inherit=all"])
     if disable_sandbox:
         cmd.append("--dangerously-bypass-approvals-and-sandbox")
     else:
         cmd.extend(["--sandbox", "danger-full-access"])
+    if skip_git_repo_check:
+        cmd.append("--skip-git-repo-check")
     if model:
         cmd.extend(["--model", model])
     return cmd
@@ -122,14 +127,11 @@ def build_new_codex_command(
     cmd = build_codex_command(
         codex_bin=codex_bin,
         workspace_dir=workspace_dir,
-        git_repo_root=git_repo_root,
         model=model,
         disable_sandbox=disable_sandbox,
+        exec_mode=full_auto,
+        skip_git_repo_check=full_auto and git_repo_root is None,
     )
-    if full_auto:
-        cmd.append("exec")
-        if git_repo_root is None:
-            cmd.append("--skip-git-repo-check")
     cmd.append(prompt)
     return cmd
 
@@ -143,18 +145,23 @@ def build_resume_codex_command(
     model: str | None,
     disable_sandbox: bool,
 ) -> list[str]:
+    if session.mode == "exec":
+        cmd = build_codex_command(
+            codex_bin=codex_bin,
+            workspace_dir=workspace_dir,
+            model=model,
+            disable_sandbox=disable_sandbox,
+            exec_mode=True,
+            skip_git_repo_check=git_repo_root is None,
+        )
+        cmd.extend(["resume", session.session_id])
+        return cmd
     cmd = build_codex_command(
         codex_bin=codex_bin,
         workspace_dir=workspace_dir,
-        git_repo_root=git_repo_root,
         model=model,
         disable_sandbox=disable_sandbox,
     )
-    if session.mode == "exec":
-        cmd.extend(["exec", "resume", session.session_id])
-        if git_repo_root is None:
-            cmd.append("--skip-git-repo-check")
-        return cmd
     cmd.extend(["resume", session.session_id])
     return cmd
 
@@ -256,6 +263,19 @@ def launch_codex(
     return process.wait()
 
 
+def preview_resume_identity(existing_state: dict[str, object]) -> dict[str, str]:
+    chat_identity_id = existing_state.get("chat_identity_id")
+    resume_secret = existing_state.get("resume_secret")
+    return {
+        "chat_identity_id": chat_identity_id if isinstance(chat_identity_id, str) and chat_identity_id.strip() else "<new-chat-identity-id>",
+        "resume_secret": resume_secret if isinstance(resume_secret, str) and resume_secret.strip() else "<new-resume-secret>",
+    }
+
+
+def expected_prompt_path(workspace_dir: Path, settings: ClientSettings) -> Path:
+    return workspace_dir / settings.state_dir_name / settings.prompt_output_name
+
+
 def main() -> int:
     args = parse_args()
     workspace_dir = Path(args.workspace).expanduser().resolve()
@@ -263,9 +283,67 @@ def main() -> int:
     client = ConstellationAPIClient(settings)
     existing_state = topic_state(workspace_dir, settings, args.topic) or {}
     topic_payload = client.get_topic(args.topic)["topic"]
+    agent_name = args.agent_name or str(existing_state.get("display_name") or default_agent_name(workspace_dir))
+    template = load_private_prompt_template(settings) or load_public_prompt_template()
+    prompt_text = render_join_prompt(template, topic_payload)
+    prompt_path = expected_prompt_path(workspace_dir, settings)
+    repo_root = git_root(workspace_dir)
+    resume_session = resolve_codex_resume_candidate(workspace_dir, existing_state)
+    if resume_session is not None:
+        codex_command = build_resume_codex_command(
+            codex_bin=args.codex_bin,
+            workspace_dir=workspace_dir,
+            session=resume_session,
+            git_repo_root=repo_root,
+            model=args.model,
+            disable_sandbox=args.disable_sandbox,
+        )
+    else:
+        codex_command = build_new_codex_command(
+            codex_bin=args.codex_bin,
+            workspace_dir=workspace_dir,
+            prompt=prompt_text,
+            git_repo_root=repo_root,
+            model=args.model,
+            full_auto=args.full_auto,
+            disable_sandbox=args.disable_sandbox,
+        )
+
+    watcher_command: list[str] | None = None
+    watcher_pid: int | None = existing_state.get("watcher_pid") if isinstance(existing_state.get("watcher_pid"), int) else None
+
+    if args.dry_run:
+        preview_identity = preview_resume_identity(existing_state)
+        preview_member_id = existing_state.get("member_id") if isinstance(existing_state.get("member_id"), str) else "<resume-or-create-member>"
+        if not args.no_watcher:
+            watcher_command = [
+                sys.executable,
+                str(Path(__file__).resolve().parent / "opencrow_constellation_watcher.py"),
+                "--topic",
+                args.topic,
+                "--member-id",
+                str(preview_member_id),
+                "--workspace",
+                str(workspace_dir),
+            ]
+        print(f"workspace_dir={workspace_dir}")
+        print(f"topic={args.topic}")
+        print(f"member_id={preview_member_id}")
+        print(f"chat_identity_id={preview_identity['chat_identity_id']}")
+        print(f"prompt_path={prompt_path}")
+        if resume_session is not None:
+            print(f"codex_resume_session_id={resume_session.session_id}")
+            print(f"codex_resume_mode={resume_session.mode}")
+        print("watcher_command=")
+        print(quote_command(watcher_command or []))
+        print("codex_command=")
+        print(quote_command(codex_command))
+        print("prompt=")
+        print(prompt_text)
+        return 0
+
     ensure_workspace_session_id(workspace_dir, settings)
     resume_identity = ensure_topic_resume_credentials(workspace_dir, settings, args.topic)
-    agent_name = args.agent_name or str(existing_state.get("display_name") or default_agent_name(workspace_dir))
     joined = client.resume_topic(
         args.topic,
         display_name=agent_name,
@@ -276,13 +354,7 @@ def main() -> int:
         metadata={"launcher": "opencrow-constellation-join"},
         allow_create=True,
     )
-
-    template = load_private_prompt_template(settings) or load_public_prompt_template()
-    prompt_text = render_join_prompt(template, topic_payload)
     prompt_path = materialize_workspace_prompt(workspace_dir, settings, prompt_text)
-
-    watcher_command: list[str] | None = None
-    watcher_pid: int | None = None
     if not args.no_watcher:
         current_pid = existing_state.get("watcher_pid") if isinstance(existing_state.get("watcher_pid"), int) else None
         current_member_id = existing_state.get("member_id")
@@ -296,7 +368,6 @@ def main() -> int:
                 topic=args.topic,
                 member_id=joined.member["id"],
             )
-
     update_topic_state(
         workspace_dir,
         settings,
@@ -312,18 +383,7 @@ def main() -> int:
             "session_epoch": joined.member.get("session_epoch"),
         },
     )
-
-    repo_root = git_root(workspace_dir)
-    resume_session = resolve_codex_resume_candidate(workspace_dir, existing_state)
     if resume_session is not None:
-        codex_command = build_resume_codex_command(
-            codex_bin=args.codex_bin,
-            workspace_dir=workspace_dir,
-            session=resume_session,
-            git_repo_root=repo_root,
-            model=args.model,
-            disable_sandbox=args.disable_sandbox,
-        )
         update_topic_state(
             workspace_dir,
             settings,
@@ -335,33 +395,6 @@ def main() -> int:
                 "codex_session_file": str(resume_session.path),
             },
         )
-    else:
-        codex_command = build_new_codex_command(
-            codex_bin=args.codex_bin,
-            workspace_dir=workspace_dir,
-            prompt=prompt_text,
-            git_repo_root=repo_root,
-            model=args.model,
-            full_auto=args.full_auto,
-            disable_sandbox=args.disable_sandbox,
-        )
-
-    if args.dry_run:
-        print(f"workspace_dir={workspace_dir}")
-        print(f"topic={args.topic}")
-        print(f"member_id={joined.member['id']}")
-        print(f"chat_identity_id={joined.member.get('chat_identity_id')}")
-        print(f"prompt_path={prompt_path}")
-        if resume_session is not None:
-            print(f"codex_resume_session_id={resume_session.session_id}")
-            print(f"codex_resume_mode={resume_session.mode}")
-        print("watcher_command=")
-        print(quote_command(watcher_command or []))
-        print("codex_command=")
-        print(quote_command(codex_command))
-        print("prompt=")
-        print(prompt_text)
-        return 0
 
     if not command_available(args.codex_bin):
         raise SystemExit(f"Codex executable not found: {args.codex_bin}")

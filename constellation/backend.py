@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import secrets
 import threading
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 import tornado.ioloop
+import tornado.httputil
 import tornado.web
 import tornado.websocket
 
@@ -45,6 +49,19 @@ class BaseHandler(tornado.web.RequestHandler):
             return header[7:].strip()
         query_token = self.get_query_argument("token", default="").strip()
         return query_token
+
+    def _ui_request_allowed(self) -> bool:
+        expected = self.app_state.settings.ui_shared_secret
+        if not expected:
+            return False
+        supplied = self.request.headers.get("X-Constellation-UI-Auth", "").strip()
+        return bool(supplied) and secrets.compare_digest(supplied, expected)
+
+    def _normalized_client_kind(self, raw_kind: object) -> str:
+        requested = str(raw_kind or "agent").strip().lower() or "agent"
+        if requested == "ui" and self._ui_request_allowed():
+            return "ui"
+        return "agent"
 
     def prepare(self) -> None:
         if self.request.path == "/api/v1/health":
@@ -176,7 +193,7 @@ class TopicJoinHandler(BaseHandler):
         display_name = str(payload.get("display_name", "")).strip()
         if not display_name:
             raise tornado.web.HTTPError(400, reason="`display_name` is required.")
-        client_kind = str(payload.get("client_kind", "agent")).strip() or "agent"
+        client_kind = self._normalized_client_kind(payload.get("client_kind", "agent"))
         workspace_path = payload.get("workspace_path")
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         try:
@@ -203,7 +220,7 @@ class TopicResumeHandler(BaseHandler):
         resume_secret = str(payload.get("resume_secret", "")).strip()
         if not display_name or not chat_identity_id or not resume_secret:
             raise tornado.web.HTTPError(400, reason="`display_name`, `chat_identity_id`, and `resume_secret` are required.")
-        client_kind = str(payload.get("client_kind", "agent")).strip() or "agent"
+        client_kind = self._normalized_client_kind(payload.get("client_kind", "agent"))
         workspace_path = payload.get("workspace_path")
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         allow_create = bool(payload.get("allow_create", False))
@@ -325,7 +342,8 @@ class TopicMessagesHandler(BaseHandler):
 
 class TopicDocsHandler(BaseHandler):
     def get(self, topic: str) -> None:
-        self.write_json({"ok": True, "documents": self.app_state.storage.list_documents(topic)})
+        include_content = self.get_query_argument("include_content", "0").strip().lower() in {"1", "true", "yes"}
+        self.write_json({"ok": True, "documents": self.app_state.storage.list_documents(topic, include_content=include_content)})
 
     def post(self, topic: str) -> None:
         payload = self.read_json_body()
@@ -388,9 +406,12 @@ class FileDownloadHandler(BaseHandler):
         except Exception as exc:
             raise tornado.web.HTTPError(404, reason=f"Unknown file: {file_id}") from exc
         content_type = str(metadata.get("content_type", "application/octet-stream"))
-        filename = str(metadata.get("filename", file_id))
+        filename = _safe_download_filename(str(metadata.get("filename", file_id)))
         self.set_header("Content-Type", content_type)
-        self.set_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.set_header(
+            "Content-Disposition",
+            f"attachment; filename={json.dumps(filename)}; filename*=UTF-8''{quote(filename)}",
+        )
         self.finish(data)
 
 
@@ -405,10 +426,23 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         self.io_loop: tornado.ioloop.IOLoop | None = None
 
     def check_origin(self, origin: str) -> bool:
-        return True
+        header = self.request.headers.get("Authorization", "").strip()
+        if header.lower().startswith("bearer "):
+            return True
+        if not origin:
+            return True
+        allowed = self.app_state.settings.allowed_ws_origins
+        if not allowed:
+            return False
+        return _normalize_origin(origin) in allowed
+
+    def select_subprotocol(self, subprotocols: list[str]) -> str | None:
+        if "opencrow.constellation.v1" in subprotocols:
+            return "opencrow.constellation.v1"
+        return None
 
     def open(self) -> None:
-        token = self.get_argument("token", default="").strip()
+        token = _extract_websocket_token(self.request)
         if not self.app_state.storage.validate_system_token(token):
             self.close(code=4001, reason="Unauthorized")
             return
@@ -487,7 +521,7 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
 
     def _watch_events(self) -> None:
         try:
-            for event in self.app_state.storage.watch_events(self.topic):
+            for event in self.app_state.storage.watch_events(self.topic, stop_event=self.stop_event):
                 if self.stop_event.is_set():
                     break
                 if self.io_loop is not None:
@@ -511,6 +545,42 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         self.write_message(json.dumps(event))
         if event.get("event_type") == "topic_deleted":
             self.close(code=4005, reason="Topic deleted")
+
+
+def _normalize_origin(origin: str) -> str:
+    parts = urlsplit(origin.strip())
+    if not parts.scheme or not parts.netloc:
+        return origin.strip().rstrip("/")
+    return f"{parts.scheme}://{parts.netloc}".rstrip("/")
+
+
+def _decode_ws_token(value: str) -> str:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
+
+
+def _extract_websocket_token(request: tornado.httputil.HTTPServerRequest) -> str:
+    header = request.headers.get("Authorization", "").strip()
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    raw_protocols = request.headers.get("Sec-WebSocket-Protocol", "")
+    for protocol in raw_protocols.split(","):
+        candidate = protocol.strip()
+        if candidate.startswith("auth."):
+            encoded = candidate[5:]
+            if not encoded:
+                continue
+            try:
+                return _decode_ws_token(encoded)
+            except Exception:
+                continue
+    return request.query_arguments.get("token", [b""])[0].decode("utf-8", errors="ignore").strip()
+
+
+def _safe_download_filename(raw_value: str) -> str:
+    cleaned = "".join(ch for ch in raw_value if 32 <= ord(ch) <= 126 and ch not in {'"', "\\", "/", ";"})
+    cleaned = cleaned.strip() or "download.bin"
+    return cleaned
 
 
 def build_app(app_state: AppState) -> tornado.web.Application:

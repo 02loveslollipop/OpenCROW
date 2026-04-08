@@ -89,6 +89,8 @@ class BackendSettings:
     listen_port: int
     system_tokens: tuple[str, ...]
     broker_event_ttl_hours: int
+    allowed_ws_origins: tuple[str, ...]
+    ui_shared_secret: str | None
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,7 @@ class UISettings:
     listen_port: int
     secret_key: str
     default_display_name: str
+    shared_secret: str | None
 
 
 def load_client_settings(*, overrides: dict[str, Any] | None = None) -> ClientSettings:
@@ -234,6 +237,19 @@ def load_backend_settings() -> BackendSettings:
                 24,
             )
         ),
+        allowed_ws_origins=parse_token_list(
+            str(
+                _env_or_config(
+                    "OPENCROW_CONSTELLATION_ALLOWED_WS_ORIGINS",
+                    config,
+                    "allowed_ws_origins",
+                    "http://127.0.0.1:8788,http://localhost:8788",
+                )
+            )
+        ),
+        ui_shared_secret=str(secret)
+        if (secret := _env_or_config("OPENCROW_CONSTELLATION_UI_SHARED_SECRET", config, "ui_shared_secret", ""))
+        else None,
     )
 
 
@@ -290,4 +306,12 @@ def load_ui_settings() -> UISettings:
                 "OpenCROW UI",
             )
         ),
+        shared_secret=str(secret)
+        if (secret := _env_or_config(
+            "OPENCROW_CONSTELLATION_UI_SHARED_SECRET",
+            config,
+            "ui_shared_secret",
+            "opencrow-constellation-ui-dev-secret",
+        ))
+        else None,
     )

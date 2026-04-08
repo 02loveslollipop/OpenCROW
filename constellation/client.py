@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import socket
 from dataclasses import dataclass
@@ -29,15 +30,18 @@ class TopicJoinResult:
 
 
 class ConstellationAPIClient:
-    def __init__(self, settings: ClientSettings) -> None:
+    def __init__(self, settings: ClientSettings, *, extra_headers: dict[str, str] | None = None) -> None:
         self.settings = settings
         self.session = requests.Session()
+        self.extra_headers = dict(extra_headers or {})
 
     def _headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.settings.token}",
         }
+        headers.update(self.extra_headers)
+        return headers
 
     def _api_url(self, path: str) -> str:
         base = self.settings.api_base_url.rstrip("/")
@@ -222,8 +226,9 @@ class ConstellationAPIClient:
     def regenerate_admin_secret(self, topic: str) -> dict[str, Any]:
         return self._json("POST", f"/topics/{topic}/admin/regenerate", json={})
 
-    def list_docs(self, topic: str) -> dict[str, Any]:
-        return self._json("GET", f"/topics/{topic}/docs")
+    def list_docs(self, topic: str, *, include_content: bool = False) -> dict[str, Any]:
+        suffix = "?include_content=1" if include_content else ""
+        return self._json("GET", f"/topics/{topic}/docs{suffix}")
 
     def sync_documents(self, topic: str, *, member_id: str, documents: list[dict[str, Any]]) -> dict[str, Any]:
         return self._json("POST", f"/topics/{topic}/docs", json={"member_id": member_id, "documents": documents})
@@ -284,12 +289,23 @@ class ConstellationAPIClient:
             "member_id": member_id,
             "client_kind": client_kind,
             "display_name": display_name,
-            "token": self.settings.token,
         }
         if session_epoch is not None:
             payload["session_epoch"] = session_epoch
         query = urlencode(payload)
         return f"{base}/ws?{query}"
+
+    def build_ws_headers(self) -> list[str]:
+        if not self.settings.token:
+            return []
+        return [f"Authorization: Bearer {self.settings.token}"]
+
+    def build_ws_subprotocols(self) -> list[str]:
+        protocols = ["opencrow.constellation.v1"]
+        if self.settings.token:
+            token = base64.urlsafe_b64encode(self.settings.token.encode("utf-8")).decode("ascii").rstrip("=")
+            protocols.append(f"auth.{token}")
+        return protocols
 
     @staticmethod
     def format_handoff_urls(raw_value: str) -> list[str]:

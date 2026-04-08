@@ -38,6 +38,8 @@ services:
       OPENCROW_CONSTELLATION_MONGO_URI: mongodb://mongo:27017
       OPENCROW_CONSTELLATION_MONGO_DB: opencrow_constellation
       OPENCROW_CONSTELLATION_SYSTEM_TOKEN: ${OPENCROW_CONSTELLATION_SYSTEM_TOKEN:-development-token-change-me}
+      OPENCROW_CONSTELLATION_UI_SHARED_SECRET: ${OPENCROW_CONSTELLATION_UI_SHARED_SECRET:-opencrow-constellation-ui-dev-secret}
+      OPENCROW_CONSTELLATION_ALLOWED_WS_ORIGINS: ${OPENCROW_CONSTELLATION_ALLOWED_WS_ORIGINS:-http://127.0.0.1:8788,http://localhost:8788}
       OPENCROW_CONSTELLATION_PRIVATE_PROMPT_FILE: /run/opencrow/constellation-private-prompt.md
     depends_on:
       - mongo
@@ -56,6 +58,7 @@ services:
       OPENCROW_CONSTELLATION_UI_BACKEND_API_BASE_URL: http://constellation-backend:8787
       OPENCROW_CONSTELLATION_UI_BACKEND_WS_BASE_URL: ws://localhost:8787
       OPENCROW_CONSTELLATION_UI_SECRET_KEY: ${OPENCROW_CONSTELLATION_UI_SECRET_KEY:-opencrow-constellation-ui-dev-secret}
+      OPENCROW_CONSTELLATION_UI_SHARED_SECRET: ${OPENCROW_CONSTELLATION_UI_SHARED_SECRET:-opencrow-constellation-ui-dev-secret}
     depends_on:
       - constellation-backend
     ports:

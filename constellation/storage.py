@@ -131,17 +131,19 @@ class ConstellationStorage:
             "metadata": doc.get("metadata", {}),
         }
 
-    def _public_doc_snapshot(self, doc: dict[str, Any]) -> dict[str, Any]:
-        return {
+    def _public_doc_snapshot(self, doc: dict[str, Any], *, include_content: bool = True) -> dict[str, Any]:
+        payload = {
             "id": public_object_id(doc["_id"]),
             "topic": doc["topic"],
             "member_id": doc["member_id"],
             "display_name": doc["display_name"],
             "relative_path": doc["relative_path"],
             "sha256": doc["sha256"],
-            "content": doc["content"],
             "updated_at": isoformat(doc.get("updated_at")),
         }
+        if include_content:
+            payload["content"] = doc["content"]
+        return payload
 
     def _public_final_artifact(self, doc: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -270,6 +272,13 @@ class ConstellationStorage:
         existing = self.topics.find_one({"slug": topic})
         if existing is None:
             raise KeyError(topic)
+        # Final artifacts intentionally survive topic deletion. They are immutable,
+        # permanent deliverables and are not part of ephemeral topic state.
+        self.members.delete_many({"topic": topic})
+        self.messages.delete_many({"topic": topic})
+        self.doc_snapshots.delete_many({"topic": topic})
+        self.admin_tokens.delete_many({"topic": topic})
+        self.broker_events.delete_many({"topic": topic})
         event = self._emit_broker_event(
             topic,
             "topic_deleted",
@@ -280,10 +289,6 @@ class ConstellationStorage:
             },
         )
         self.topics.delete_one({"slug": topic})
-        self.members.delete_many({"topic": topic})
-        self.messages.delete_many({"topic": topic})
-        self.doc_snapshots.delete_many({"topic": topic})
-        self.admin_tokens.delete_many({"topic": topic})
         return {
             "topic": topic,
             "deleted": True,
@@ -546,9 +551,9 @@ class ConstellationStorage:
         self.members.update_one({"_id": member["_id"]}, {"$set": {"last_seen_at": now}})
         return public_docs
 
-    def list_documents(self, topic: str) -> list[dict[str, Any]]:
+    def list_documents(self, topic: str, *, include_content: bool = False) -> list[dict[str, Any]]:
         return [
-            self._public_doc_snapshot(doc)
+            self._public_doc_snapshot(doc, include_content=include_content)
             for doc in self.doc_snapshots.find({"topic": topic}).sort([("display_name", ASCENDING), ("relative_path", ASCENDING)])
         ]
 
@@ -659,7 +664,7 @@ class ConstellationStorage:
         cursor = self.broker_events.find(query).sort("_id", ASCENDING).limit(bounded_limit)
         return [self._public_broker_event(doc) for doc in cursor]
 
-    def watch_events(self, topic: str) -> Iterable[dict[str, Any]]:
+    def watch_events(self, topic: str, *, stop_event: Any | None = None) -> Iterable[dict[str, Any]]:
         pipeline = [{"$match": {"fullDocument.topic": topic}}]
         try:
             with self.broker_events.watch(
@@ -668,6 +673,8 @@ class ConstellationStorage:
                 max_await_time_ms=1000,
             ) as stream:
                 for change in stream:
+                    if stop_event is not None and stop_event.is_set():
+                        return
                     full_document = change.get("fullDocument")
                     if not isinstance(full_document, dict):
                         continue
@@ -677,14 +684,20 @@ class ConstellationStorage:
             pass
 
         last_seen_id: ObjectId | None = None
-        while True:
+        while stop_event is None or not stop_event.is_set():
             query: dict[str, Any] = {"topic": topic}
             if last_seen_id is not None:
                 query["_id"] = {"$gt": last_seen_id}
             emitted = False
             for doc in self.broker_events.find(query).sort("_id", ASCENDING):
+                if stop_event is not None and stop_event.is_set():
+                    return
                 emitted = True
                 last_seen_id = doc["_id"]
                 yield self._public_broker_event(doc)
             if not emitted:
-                time.sleep(0.5)
+                if stop_event is not None:
+                    if stop_event.wait(0.5):
+                        return
+                else:
+                    time.sleep(0.5)

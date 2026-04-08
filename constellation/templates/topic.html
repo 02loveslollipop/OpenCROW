@@ -110,8 +110,9 @@
 <script>
   (() => {
     const wsUrl = {{ ws_url|tojson }};
+    const wsProtocols = {{ ws_protocols|tojson }};
     const historyList = document.getElementById("history-list");
-    const socket = new WebSocket(wsUrl);
+    const socket = new WebSocket(wsUrl, wsProtocols);
 
     function appendMessage(item) {
       if (!historyList) {
@@ -121,7 +122,16 @@
       const sender = item.payload?.sender?.display_name || item.payload?.display_name || "system";
       const body = item.payload?.body || JSON.stringify(item.payload || {});
       const createdAt = item.created_at || item.payload?.created_at || "";
-      node.innerHTML = `<strong>${item.payload?.type || item.event_type}</strong><span class="subtle">${sender} · ${createdAt}</span><pre>${body}</pre>`;
+      const typeNode = document.createElement("strong");
+      typeNode.textContent = item.payload?.type || item.event_type;
+      const metaNode = document.createElement("span");
+      metaNode.className = "subtle";
+      metaNode.textContent = `${sender} · ${createdAt}`;
+      const bodyNode = document.createElement("pre");
+      bodyNode.textContent = body;
+      node.appendChild(typeNode);
+      node.appendChild(metaNode);
+      node.appendChild(bodyNode);
       historyList.prepend(node);
     }
 

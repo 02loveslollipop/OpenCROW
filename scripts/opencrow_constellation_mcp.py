@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections import deque
 import hashlib
+import importlib.util
 import json
 import os
 import queue
@@ -193,6 +194,8 @@ class TopicSubscription:
             self._pending_catchup_after_id = self.last_event_id
             self.ws_app = websocket.WebSocketApp(
                 self._ws_url(),
+                header=self.client.build_ws_headers(),
+                subprotocols=self.client.build_ws_subprotocols(),
                 on_open=self._on_open,
                 on_message=self._on_message,
                 on_close=self._on_close,
@@ -641,7 +644,9 @@ def _notify_client(payload: dict[str, Any]) -> None:
 
 def toolbox_verify(arguments: dict[str, object]) -> dict[str, object]:
     observations = [
-        {"dependency": "python_requests", "available": command_exists("python3")},
+        {"dependency": "python3", "available": command_exists("python3")},
+        {"dependency": "python_requests", "available": importlib.util.find_spec("requests") is not None},
+        {"dependency": "python_websocket_client", "available": importlib.util.find_spec("websocket") is not None},
         {"dependency": "configured_api_base", "value": load_client_settings().api_base_url},
         {"dependency": "configured_ws_base", "value": load_client_settings().ws_base_url},
         {"dependency": "token_present", "available": bool(load_client_settings().token)},

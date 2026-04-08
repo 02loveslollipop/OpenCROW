@@ -103,7 +103,11 @@ def run_watcher(
             controller.sync_path(path)
         return 0
 
-    synced_count = controller.initial_sync()
+    try:
+        synced_count = controller.initial_sync()
+    except ConstellationAPIError as exc:
+        print(f"[constellation-watcher] initial sync failed: {exc}", file=sys.stderr)
+        synced_count = 0
     update_topic_state(
         workspace_dir,
         settings,
