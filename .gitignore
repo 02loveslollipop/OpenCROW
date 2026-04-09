@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 IMPROVEMENT.md
+.opencrow-constellation/
+constellation/private/

@@ -1,0 +1,6 @@
+tornado>=6.4
+Flask>=3.0
+pymongo>=4.6
+requests>=2.32
+watchdog>=4.0
+websocket-client>=1.8

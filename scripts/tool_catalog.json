@@ -969,6 +969,50 @@
       "verify": {"kind": "command", "value": "opencrow-exploit"}
     },
     {
+      "id": "opencrow-constellation-client",
+      "display_name": "opencrow-constellation-client",
+      "toolbox": "opencrow-utility-toolbox",
+      "profiles": ["headless", "full"],
+      "summary": "Install the OpenCROW Constellation client bundle with the join, admin, and MCP entrypoints.",
+      "homepage_url": "https://github.com/02loveslollipop/OpenCROW",
+      "license_url": "https://github.com/02loveslollipop/OpenCROW",
+      "install": {"kind": "direct", "handler": "opencrow-constellation-client"},
+      "verify": {"kind": "command", "value": "opencrow-constellation-client"}
+    },
+    {
+      "id": "opencrow-constellation-join",
+      "display_name": "opencrow-constellation-join",
+      "toolbox": "opencrow-utility-toolbox",
+      "profiles": ["headless", "full"],
+      "summary": "Join an OpenCROW Constellation topic, materialize the local prompt, and launch Codex in the current workspace.",
+      "homepage_url": "https://github.com/02loveslollipop/OpenCROW",
+      "license_url": "https://github.com/02loveslollipop/OpenCROW",
+      "install": {"kind": "direct", "handler": "opencrow-constellation-join"},
+      "verify": {"kind": "command", "value": "opencrow-constellation-join"}
+    },
+    {
+      "id": "opencrow-constellation-admin",
+      "display_name": "opencrow-constellation-admin",
+      "toolbox": "opencrow-utility-toolbox",
+      "profiles": ["headless", "full"],
+      "summary": "Claim Constellation master capability for the current workspace agent using a UI-issued single-use password.",
+      "homepage_url": "https://github.com/02loveslollipop/OpenCROW",
+      "license_url": "https://github.com/02loveslollipop/OpenCROW",
+      "install": {"kind": "direct", "handler": "opencrow-constellation-admin"},
+      "verify": {"kind": "command", "value": "opencrow-constellation-admin"}
+    },
+    {
+      "id": "opencrow-constellation-mcp",
+      "display_name": "opencrow-constellation-mcp",
+      "toolbox": "opencrow-utility-toolbox",
+      "profiles": ["headless", "full"],
+      "summary": "Provider-neutral MCP client for OpenCROW Constellation topics, directives, corpus sync, and final artifact upload.",
+      "homepage_url": "https://github.com/02loveslollipop/OpenCROW",
+      "license_url": "https://github.com/02loveslollipop/OpenCROW",
+      "install": {"kind": "direct", "handler": "opencrow-constellation-mcp"},
+      "verify": {"kind": "command", "value": "opencrow-constellation-mcp"}
+    },
+    {
       "id": "opencrow-netcat-mcp",
       "display_name": "opencrow-netcat-mcp",
       "toolbox": "opencrow-utility-toolbox",

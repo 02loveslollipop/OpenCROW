@@ -1,0 +1,68 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    command: ["mongod", "--bind_ip_all", "--replSet", "rs0"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - constellation-mongo:/data/db
+
+  mongo-init-replica:
+    image: mongo:7
+    depends_on:
+      - mongo
+    restart: "no"
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - >
+        until mongosh --host mongo --eval "db.adminCommand({ ping: 1 })" >/dev/null 2>&1; do sleep 2; done;
+        mongosh --host mongo --eval '
+          try {
+            rs.status();
+          } catch (err) {
+            rs.initiate({
+              _id: "rs0",
+              members: [{ _id: 0, host: "mongo:27017" }]
+            });
+          }
+        ';
+
+  constellation-backend:
+    build:
+      context: .
+      dockerfile: constellation/Dockerfile.backend
+    restart: unless-stopped
+    environment:
+      OPENCROW_CONSTELLATION_MONGO_URI: mongodb://mongo:27017
+      OPENCROW_CONSTELLATION_MONGO_DB: opencrow_constellation
+      OPENCROW_CONSTELLATION_SYSTEM_TOKEN: ${OPENCROW_CONSTELLATION_SYSTEM_TOKEN:-development-token-change-me}
+      OPENCROW_CONSTELLATION_UI_SHARED_SECRET: ${OPENCROW_CONSTELLATION_UI_SHARED_SECRET:-opencrow-constellation-ui-dev-secret}
+      OPENCROW_CONSTELLATION_ALLOWED_WS_ORIGINS: ${OPENCROW_CONSTELLATION_ALLOWED_WS_ORIGINS:-http://127.0.0.1:8788,http://localhost:8788}
+      OPENCROW_CONSTELLATION_PRIVATE_PROMPT_FILE: /run/opencrow/constellation-private-prompt.md
+    depends_on:
+      - mongo
+      - mongo-init-replica
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./constellation/private:/run/opencrow:ro
+
+  constellation-ui:
+    build:
+      context: .
+      dockerfile: constellation/Dockerfile.ui
+    restart: unless-stopped
+    environment:
+      OPENCROW_CONSTELLATION_UI_BACKEND_API_BASE_URL: http://constellation-backend:8787
+      OPENCROW_CONSTELLATION_UI_BACKEND_WS_BASE_URL: ws://localhost:8787
+      OPENCROW_CONSTELLATION_UI_SECRET_KEY: ${OPENCROW_CONSTELLATION_UI_SECRET_KEY:-opencrow-constellation-ui-dev-secret}
+      OPENCROW_CONSTELLATION_UI_SHARED_SECRET: ${OPENCROW_CONSTELLATION_UI_SHARED_SECRET:-opencrow-constellation-ui-dev-secret}
+    depends_on:
+      - constellation-backend
+    ports:
+      - "8788:8788"
+
+volumes:
+  constellation-mongo:
