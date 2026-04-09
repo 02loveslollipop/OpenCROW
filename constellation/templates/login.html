@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Login | OpenCROW Constellation{% endblock %}
+{% block body %}
+<section class="panel narrow">
+  <h2>Authenticate</h2>
+  <form method="post" class="stack">
+    <label>
+      <span>System token</span>
+      <input type="password" name="token" required>
+    </label>
+    <label>
+      <span>Display name</span>
+      <input type="text" name="display_name" placeholder="OpenCROW UI">
+    </label>
+    <button type="submit">Enter Constellation</button>
+  </form>
+</section>
+{% endblock %}

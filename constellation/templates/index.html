@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Topics | OpenCROW Constellation{% endblock %}
+{% block body %}
+<section class="grid">
+  <section class="panel">
+    <h2>Create Topic</h2>
+    <form method="post" action="{{ url_for('create_topic') }}" class="stack">
+      <label>
+        <span>Title</span>
+        <input type="text" name="title" required>
+      </label>
+      <label>
+        <span>Slug</span>
+        <input type="text" name="slug" placeholder="optional-slug">
+      </label>
+      <label>
+        <span>Category</span>
+        <input type="text" name="category" value="misc">
+      </label>
+      <label>
+        <span>Description</span>
+        <textarea name="description" rows="6" required></textarea>
+      </label>
+      <label>
+        <span>Handoff URLs</span>
+        <textarea name="handoff_urls" rows="5" placeholder="One URL per line"></textarea>
+      </label>
+      <button type="submit">Create topic</button>
+    </form>
+  </section>
+  <section class="panel">
+    <h2>Topics</h2>
+    {% if topics %}
+    <ul class="topic-list">
+      {% for topic in topics %}
+      <li>
+        <a href="{{ url_for('topic_detail', topic=topic.slug) }}">{{ topic.title }}</a>
+        <div class="meta">
+          <span>{{ topic.slug }}</span>
+          <span>{{ topic.category }}</span>
+          <span>{{ topic.member_count }} members</span>
+          <span>{{ topic.final_artifact_count }} final artifacts</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="subtle">No topics created yet.</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

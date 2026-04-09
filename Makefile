@@ -56,6 +56,12 @@ smoke:
 	bash -n scripts/opencrow-netcat-mcp
 	bash -n scripts/opencrow-ssh-mcp
 	bash -n scripts/opencrow-minecraft-mcp
+	bash -n scripts/opencrow-constellation-client
+	bash -n scripts/opencrow-constellation-mcp
+	bash -n scripts/opencrow-constellation-join
+	bash -n scripts/opencrow-constellation-admin
+	bash -n scripts/opencrow-constellation-join.bash-completion
+	bash -n scripts/opencrow-constellation-admin.bash-completion
 	python3 -m py_compile scripts/tool_catalog.py
 	python3 -m py_compile scripts/install_cli.py
 	python3 -m py_compile scripts/check_mcp_server.py
@@ -65,6 +71,8 @@ smoke:
 	python3 -m py_compile scripts/opencrow_crypto_mcp.py
 	python3 -m py_compile scripts/opencrow_pwn_mcp.py
 	python3 -m py_compile scripts/opencrow_reversing_mcp.py
+	python3 -m py_compile scripts/opencrow_reversing_worker.py
+	python3 -m py_compile scripts/reversing_mcp_smoke.py
 	python3 -m py_compile scripts/opencrow_network_mcp.py
 	python3 -m py_compile scripts/opencrow_utility_mcp.py
 	python3 -m py_compile scripts/opencrow_stego_mcp.py
@@ -74,4 +82,17 @@ smoke:
 	python3 -m py_compile scripts/opencrow_netcat_mcp.py
 	python3 -m py_compile scripts/opencrow_ssh_mcp.py
 	python3 -m py_compile scripts/opencrow_minecraft_mcp.py
+	python3 -m py_compile scripts/opencrow_constellation_join.py
+	python3 -m py_compile scripts/opencrow_constellation_admin.py
+	python3 -m py_compile scripts/opencrow_constellation_watcher.py
+	python3 -m py_compile scripts/opencrow_constellation_mcp.py
+	python3 -m py_compile constellation/__init__.py
+	python3 -m py_compile constellation/config.py
+	python3 -m py_compile constellation/workspace.py
+	python3 -m py_compile constellation/prompts.py
+	python3 -m py_compile constellation/client.py
+	python3 -m py_compile constellation/storage.py
+	python3 -m py_compile constellation/backend.py
+	python3 -m py_compile constellation/ui.py
+	python3 -m py_compile constellation/watcher.py
 	bash scripts/install_headless.sh --env "$(ENV)" --dry-run

@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 OPEN_CROW_MCP_SERVERS = [
+    "opencrow-constellation-mcp",
     "opencrow-crypto-mcp",
     "opencrow-forensics-mcp",
     "opencrow-minecraft-mcp",
