@@ -30,7 +30,6 @@ from constellation.workspace import (
     ensure_topic_resume_credentials,
     filter_markdown_paths,
     relative_workspace_path,
-    topic_state,
     update_topic_state,
 )
 
