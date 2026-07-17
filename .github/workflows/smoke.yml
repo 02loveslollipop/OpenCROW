@@ -59,6 +59,7 @@ jobs:
           python3 -m py_compile scripts/opencrow_netcat_mcp.py
           python3 -m py_compile scripts/opencrow_ssh_mcp.py
           python3 -m py_compile scripts/opencrow_minecraft_mcp.py
+          PYTHONPATH=scripts python3 -m unittest tests/test_opencrow_reversing_worker.py
 
       - name: Dry-run installer
         run: bash scripts/install_headless.sh --env ctf --dry-run
