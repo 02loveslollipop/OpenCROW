@@ -76,6 +76,7 @@ smoke:
 	python3 -m py_compile scripts/opencrow_network_mcp.py
 	python3 -m py_compile scripts/opencrow_utility_mcp.py
 	python3 -m py_compile scripts/opencrow_stego_mcp.py
+	python3 scripts/test_opencrow_stego_mcp.py
 	python3 -m py_compile scripts/opencrow_forensics_mcp.py
 	python3 -m py_compile scripts/opencrow_osint_mcp.py
 	python3 -m py_compile scripts/opencrow_web_mcp.py
