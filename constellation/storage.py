@@ -617,8 +617,19 @@ class ConstellationStorage:
         metadata["length"] = grid_out.length
         return data, metadata
 
-    def _public_topic(self, doc: dict[str, Any]) -> dict[str, Any]:
+    def _public_topic(
+        self,
+        doc: dict[str, Any],
+        member_count: int | None = None,
+        final_artifact_count: int | None = None,
+    ) -> dict[str, Any]:
         topic_slug = str(doc["slug"])
+
+        if member_count is None:
+            member_count = self.members.count_documents({"topic": topic_slug})
+        if final_artifact_count is None:
+            final_artifact_count = self.final_artifacts.count_documents({"topic": topic_slug})
+
         return {
             "id": public_object_id(doc["_id"]),
             "slug": topic_slug,
@@ -628,8 +639,8 @@ class ConstellationStorage:
             "handoff_urls": list(doc.get("handoff_urls", [])),
             "created_at": isoformat(doc.get("created_at")),
             "updated_at": isoformat(doc.get("updated_at")),
-            "member_count": self.members.count_documents({"topic": topic_slug}),
-            "final_artifact_count": self.final_artifacts.count_documents({"topic": topic_slug}),
+            "member_count": member_count,
+            "final_artifact_count": final_artifact_count,
         }
 
     def _public_member(self, doc: dict[str, Any]) -> dict[str, Any]:
@@ -820,7 +831,38 @@ class ConstellationStorage:
         return self._public_broker_event(doc)
 
     def list_topics(self) -> list[dict[str, Any]]:
-        return [self._public_topic(doc) for doc in self.topics.find().sort("updated_at", DESCENDING)]
+        topics_docs = list(self.topics.find().sort("updated_at", DESCENDING))
+        if not topics_docs:
+            return []
+
+        topic_slugs = [str(doc["slug"]) for doc in topics_docs]
+
+        members_pipeline = [
+            {"$match": {"topic": {"$in": topic_slugs}}},
+            {"$group": {"_id": "$topic", "count": {"$sum": 1}}},
+        ]
+        member_counts = {
+            doc["_id"]: doc["count"]
+            for doc in self.members.aggregate(members_pipeline)
+        }
+
+        artifacts_pipeline = [
+            {"$match": {"topic": {"$in": topic_slugs}}},
+            {"$group": {"_id": "$topic", "count": {"$sum": 1}}},
+        ]
+        artifact_counts = {
+            doc["_id"]: doc["count"]
+            for doc in self.final_artifacts.aggregate(artifacts_pipeline)
+        }
+
+        return [
+            self._public_topic(
+                doc,
+                member_count=member_counts.get(str(doc["slug"]), 0),
+                final_artifact_count=artifact_counts.get(str(doc["slug"]), 0),
+            )
+            for doc in topics_docs
+        ]
 
     def get_topic(self, topic: str) -> dict[str, Any] | None:
         doc = self.topics.find_one({"slug": topic})
