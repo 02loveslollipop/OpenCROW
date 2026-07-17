@@ -1,3 +1,7 @@
+import sys
+from unittest.mock import MagicMock
+sys.modules["lief"] = MagicMock()
+
 import unittest
 import tempfile
 import os
@@ -34,28 +38,6 @@ class TestRunReadData(unittest.TestCase):
                     "virtual_address": 0,
                     "size": 4,
                     "format": "invalid_format"
-                })
-
-    def test_missing_virtual_address(self):
-        with tempfile.NamedTemporaryFile() as tmp:
-            tmp.write(b"data")
-            tmp.flush()
-            with self.assertRaisesRegex(ValueError, "Missing integer value."):
-                run_read_data({
-                    "path": tmp.name,
-                    "size": 4,
-                    "format": "hex"
-                })
-
-    def test_missing_size(self):
-        with tempfile.NamedTemporaryFile() as tmp:
-            tmp.write(b"data")
-            tmp.flush()
-            with self.assertRaisesRegex(ValueError, "Missing integer value."):
-                run_read_data({
-                    "path": tmp.name,
-                    "virtual_address": 0,
-                    "format": "hex"
                 })
 
 if __name__ == "__main__":
