@@ -26,14 +26,14 @@ OPEN_CROW_MCP_SERVERS = [
 START_MARKER = "# >>> OpenCROW managed MCP servers >>>"
 END_MARKER = "# <<< OpenCROW managed MCP servers <<<"
 TABLE_RE = re.compile(r"^\[(?P<header>[^\]]+)\]\s*$")
+MANAGED_BLOCK_RE = re.compile(
+    rf"\n?{re.escape(START_MARKER)}\n.*?{re.escape(END_MARKER)}\n?",
+    re.DOTALL,
+)
 
 
 def strip_managed_block(text: str) -> str:
-    pattern = re.compile(
-        rf"\n?{re.escape(START_MARKER)}\n.*?{re.escape(END_MARKER)}\n?",
-        re.DOTALL,
-    )
-    return pattern.sub("\n", text)
+    return MANAGED_BLOCK_RE.sub("\n", text)
 
 
 def split_sections(text: str) -> list[tuple[str | None, str]]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 CONFIG_PATH = Path.home() / ".config" / "opencrow" / "constellation" / "config.json"
 DEFAULT_STATE_DIR_NAME = ".opencrow-constellation"
-DEFAULT_DEVELOPMENT_TOKEN = "development-token-change-me"
+DEFAULT_DEVELOPMENT_TOKEN = secrets.token_hex(32)
 
 
 def _load_config_file(path: Path = CONFIG_PATH) -> dict[str, Any]:

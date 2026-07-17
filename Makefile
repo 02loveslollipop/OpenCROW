@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 ENV ?= ctf
 
-.PHONY: help install dry-run update verify uninstall smoke sync-skills remove-skills
+.PHONY: help install dry-run update verify uninstall smoke sync-skills remove-skills test
 
 help:
 	@echo "Targets:"
@@ -12,6 +12,7 @@ help:
 	@echo "  make verify ENV=ctf"
 	@echo "  make uninstall ENV=ctf"
 	@echo "  make smoke"
+	@echo "  make test"
 
 install:
 	bash scripts/install.sh --env "$(ENV)"
@@ -72,10 +73,13 @@ smoke:
 	python3 -m py_compile scripts/opencrow_pwn_mcp.py
 	python3 -m py_compile scripts/opencrow_reversing_mcp.py
 	python3 -m py_compile scripts/opencrow_reversing_worker.py
+	PYTHONPATH=scripts python3 -m unittest tests/test_opencrow_reversing_worker.py
 	python3 -m py_compile scripts/reversing_mcp_smoke.py
+	python3 -m py_compile scripts/stego_mcp_smoke.py
 	python3 -m py_compile scripts/opencrow_network_mcp.py
 	python3 -m py_compile scripts/opencrow_utility_mcp.py
 	python3 -m py_compile scripts/opencrow_stego_mcp.py
+	python3 scripts/test_opencrow_stego_mcp.py
 	python3 -m py_compile scripts/opencrow_forensics_mcp.py
 	python3 -m py_compile scripts/opencrow_osint_mcp.py
 	python3 -m py_compile scripts/opencrow_web_mcp.py
@@ -96,3 +100,6 @@ smoke:
 	python3 -m py_compile constellation/ui.py
 	python3 -m py_compile constellation/watcher.py
 	bash scripts/install_headless.sh --env "$(ENV)" --dry-run
+
+test:
+	PYTHONPATH=scripts:. pytest tests/ scripts/test_*.py

@@ -30,6 +30,8 @@ DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 CONTENT_LENGTH_FRAMING = "content-length"
 JSON_LINE_FRAMING = "json-line"
 
+_URI_TEMPLATE_VAR_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
 
 @dataclass(frozen=True)
 class MCPTool:
@@ -280,7 +282,7 @@ def match_uri_template(uri_template: str, uri: str) -> dict[str, str] | None:
 
     params: dict[str, str] = {}
     for template_segment, uri_segment in zip(template_segments, uri_segments):
-        match = re.fullmatch(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", template_segment)
+        match = _URI_TEMPLATE_VAR_RE.fullmatch(template_segment)
         if match is not None:
             params[match.group(1)] = unquote(uri_segment)
             continue

@@ -49,15 +49,18 @@ jobs:
           python3 -m py_compile scripts/opencrow_reversing_mcp.py
           python3 -m py_compile scripts/opencrow_reversing_worker.py
           python3 -m py_compile scripts/reversing_mcp_smoke.py
+          python3 -m py_compile scripts/stego_mcp_smoke.py
           python3 -m py_compile scripts/opencrow_network_mcp.py
           python3 -m py_compile scripts/opencrow_utility_mcp.py
           python3 -m py_compile scripts/opencrow_stego_mcp.py
+          python3 scripts/test_opencrow_stego_mcp.py
           python3 -m py_compile scripts/opencrow_forensics_mcp.py
           python3 -m py_compile scripts/opencrow_osint_mcp.py
           python3 -m py_compile scripts/opencrow_web_mcp.py
           python3 -m py_compile scripts/opencrow_netcat_mcp.py
           python3 -m py_compile scripts/opencrow_ssh_mcp.py
           python3 -m py_compile scripts/opencrow_minecraft_mcp.py
+          PYTHONPATH=scripts python3 -m unittest tests/test_opencrow_reversing_worker.py
 
       - name: Dry-run installer
         run: bash scripts/install_headless.sh --env ctf --dry-run
@@ -120,6 +123,9 @@ jobs:
 
       - name: Smoke reversing MCP workflows
         run: python3 scripts/reversing_mcp_smoke.py --env ctf
+
+      - name: Smoke stego MCP workflows
+        run: python3 scripts/stego_mcp_smoke.py
 
       - name: Probe first-wave MCP servers
         run: |
