@@ -1053,7 +1053,7 @@ class ConstellationStorage:
             )
 
         expected = current.get("resume_secret_digest")
-        if not isinstance(expected, str) or expected != digest_secret(secret):
+        if not isinstance(expected, str) or not secrets.compare_digest(expected, digest_secret(secret)):
             raise PermissionError("Invalid resume secret for this topic identity.")
 
         updated = self.members.find_one_and_update(
