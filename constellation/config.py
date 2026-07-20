@@ -311,9 +311,9 @@ def load_ui_settings() -> UISettings:
                 "OPENCROW_CONSTELLATION_UI_SECRET_KEY",
                 config,
                 "ui_secret_key",
-                "opencrow-constellation-ui-dev-secret",
+                "",
             )
-        ),
+        ) or secrets.token_hex(32),
         default_display_name=str(
             _env_or_config(
                 "OPENCROW_CONSTELLATION_UI_DISPLAY_NAME",
@@ -327,7 +327,7 @@ def load_ui_settings() -> UISettings:
             "OPENCROW_CONSTELLATION_UI_SHARED_SECRET",
             config,
             "ui_shared_secret",
-            "opencrow-constellation-ui-dev-secret",
+            "",
         ))
         else None,
     )
