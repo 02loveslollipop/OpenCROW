@@ -111,7 +111,12 @@ class ConstellationStorage:
         self.agent_events.create_index([("runtime_id", ASCENDING), ("created_at", DESCENDING)])
 
     def validate_system_token(self, token: str) -> bool:
-        return token in self.settings.system_tokens
+        if not token:
+            return False
+        for sys_token in self.settings.system_tokens:
+            if secrets.compare_digest(token, sys_token):
+                return True
+        return False
 
     def register_runtime(
         self,
