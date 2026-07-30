@@ -55,6 +55,18 @@ def main() -> None:
 
     zip_directory(CLI_DIR, DIST_DIR / "opencrow-cli.zip", extra_sources=extra_cli_files)
     zip_directory(CONSTELLATION_DIR, DIST_DIR / "opencrow-constellation.zip")
+
+    pages_dir = ROOT_DIR / "dist-pages"
+    if pages_dir.exists():
+        shutil.rmtree(pages_dir)
+    (pages_dir / "release").mkdir(parents=True, exist_ok=True)
+
+    opencrow_sh_source = ROOT_DIR / "scripts" / "opencrow.sh"
+    shutil.copy2(opencrow_sh_source, pages_dir / "release" / "opencrow-cli.sh")
+    shutil.copy2(opencrow_sh_source, pages_dir / "opencrow-cli.sh")
+    shutil.copy2(opencrow_sh_source, pages_dir / "opencrow.sh")
+    print(f"[+] Prepared Cloudflare Pages assets in {pages_dir}")
+
     print("==> Release build completed successfully.")
 
 
