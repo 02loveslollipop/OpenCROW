@@ -55,6 +55,12 @@ def main() -> None:
 
     zip_directory(CLI_DIR, DIST_DIR / "opencrow-cli.zip", extra_sources=extra_cli_files)
     zip_directory(CONSTELLATION_DIR, DIST_DIR / "opencrow-constellation.zip")
+
+    worker_script_target = ROOT_DIR / "services" / "installer-worker" / "src" / "opencrow-cli.sh"
+    worker_script_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT_DIR / "scripts" / "opencrow.sh", worker_script_target)
+    print(f"[+] Synced opencrow.sh to {worker_script_target}")
+
     print("==> Release build completed successfully.")
 
 

@@ -1,0 +1,7 @@
+name = "opencrow-installer"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+routes = [
+  { pattern = "opencrow.02labs.me/*", custom_domain = true }
+]
