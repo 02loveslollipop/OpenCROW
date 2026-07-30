@@ -1,0 +1,32 @@
+_opencrow_constellation_admin() {
+  local cur prev
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  local options="--workspace --member-id --help -h"
+
+  case "$prev" in
+    --workspace)
+      compopt -o dirnames 2>/dev/null
+      COMPREPLY=($(compgen -d -- "$cur"))
+      return 0
+      ;;
+  esac
+
+  case "$cur" in
+    --workspace=*)
+      local dir_cur="${cur#--workspace=}"
+      compopt -o dirnames 2>/dev/null
+      COMPREPLY=($(compgen -d -- "$dir_cur"))
+      COMPREPLY=("${COMPREPLY[@]/#/--workspace=}")
+      return 0
+      ;;
+  esac
+
+  if [[ "$cur" == -* ]]; then
+    COMPREPLY=($(compgen -W "$options" -- "$cur"))
+    return 0
+  fi
+}
+
+complete -F _opencrow_constellation_admin opencrow-constellation-admin
