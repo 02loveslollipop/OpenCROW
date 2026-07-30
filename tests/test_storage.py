@@ -21,3 +21,21 @@ def test_get_member_invalid_id():
 
         # Should return None instead of raising an exception
         assert result is None
+
+
+def test_validate_system_token():
+    settings = MagicMock()
+    settings.system_tokens = ("valid_token_1", "valid_token_2")
+
+    with pytest.MonkeyPatch.context() as m:
+        mock_client = MagicMock()
+        mock_db = MagicMock(spec=Database)
+        mock_client.__getitem__.return_value = mock_db
+        m.setattr("constellation.storage.MongoClient", MagicMock(return_value=mock_client))
+        storage = ConstellationStorage(settings)
+
+        assert storage.validate_system_token("valid_token_1") is True
+        assert storage.validate_system_token("valid_token_2") is True
+        assert storage.validate_system_token("invalid_token") is False
+        assert storage.validate_system_token("") is False
+        assert storage.validate_system_token(None) is False
