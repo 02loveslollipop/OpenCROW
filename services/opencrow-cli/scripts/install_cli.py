@@ -1468,11 +1468,18 @@ def install_opencrow_constellation_bundle(ctx: InstallerContext) -> None:
         mode = "755" if source_path.suffix in {"", ".py"} and "completion" not in script_name else "644"
         run_as_target(ctx, ["install", "-m", mode, str(source_path), str(install_dir / source_path.name)])
 
+    constellation_dir = ROOT_DIR / "constellation"
+    if not constellation_dir.exists():
+        constellation_dir = ROOT_DIR.parent / "constellation" / "constellation"
+    constellation_req = ROOT_DIR / "requirements-constellation.txt"
+    if not constellation_req.exists():
+        constellation_req = ROOT_DIR.parent / "constellation" / "requirements.txt"
+
     run_as_target(
         ctx,
-        ["install", "-m", "644", str(ROOT_DIR / "requirements-constellation.txt"), str(install_dir / "requirements-constellation.txt")],
+        ["install", "-m", "644", str(constellation_req), str(install_dir / "requirements-constellation.txt")],
     )
-    run_as_target(ctx, ["cp", "-R", str(ROOT_DIR / "constellation"), str(install_dir / "constellation")])
+    run_as_target(ctx, ["cp", "-R", str(constellation_dir), str(install_dir / "constellation")])
     run_as_target(ctx, ["python3", "-m", "venv", str(install_dir / ".venv")])
     run_as_target(ctx, [str(install_dir / ".venv/bin/pip"), "install", "--upgrade", "pip"])
     run_as_target(ctx, [str(install_dir / ".venv/bin/pip"), "install", "-r", str(install_dir / "requirements-constellation.txt")])
