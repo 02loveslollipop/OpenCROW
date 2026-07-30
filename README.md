@@ -38,7 +38,7 @@ OpenCROW Constellation runs as a set of containerized services (Backend, UI, Mon
 2. Extract the package and start the services using Docker Compose:
 
 ```bash
-unzip opencrow-constellation.zip
+unzip opencrow-constellation.zip -d opencrow-constellation
 cd opencrow-constellation
 docker compose up -d
 ```

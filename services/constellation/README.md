@@ -6,7 +6,7 @@ OpenCROW Constellation is the multi-agent coordination core of OpenCROW. It prov
 
 1. Extract the release package:
    ```bash
-   unzip opencrow-constellation.zip
+   unzip opencrow-constellation.zip -d opencrow-constellation
    cd opencrow-constellation
    ```
 
