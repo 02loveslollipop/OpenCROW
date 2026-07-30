@@ -47,5 +47,27 @@ class TestEnvOrConfig(unittest.TestCase):
             )
             self.assertIsNone(result)
 
+class TestLoadUISettings(unittest.TestCase):
+    @patch("constellation.config._load_config_file", return_value={})
+    def test_load_ui_settings_defaults(self, mock_load_config):
+        with patch.dict(os.environ, {}, clear=True):
+            from constellation.config import load_ui_settings
+            ui_settings = load_ui_settings()
+            self.assertTrue(len(ui_settings.secret_key) == 64)  # 32 bytes hex = 64 chars
+            self.assertIsNone(ui_settings.shared_secret)
+
+    @patch("constellation.config._load_config_file", return_value={})
+    def test_load_ui_settings_explicit_env(self, mock_load_config):
+        env_vars = {
+            "OPENCROW_CONSTELLATION_UI_SECRET_KEY": "custom_secret_key",
+            "OPENCROW_CONSTELLATION_UI_SHARED_SECRET": "custom_shared_secret",
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            from constellation.config import load_ui_settings
+            ui_settings = load_ui_settings()
+            self.assertEqual(ui_settings.secret_key, "custom_secret_key")
+            self.assertEqual(ui_settings.shared_secret, "custom_shared_secret")
+
 if __name__ == '__main__':
     unittest.main()
+
