@@ -13,7 +13,7 @@ usage() {
 OpenCROW Remote Installer
 
 Usage:
-  curl -fsSL https://opencrow.02labs.me/release/opencrow-cli.sh | bash -s -- [options]
+  curl -fsSL https://opencrow.02labs.me/releases/cli.sh | bash -s -- [options]
 
 Options:
   --version <tag>   Specify GitHub Release version tag (default: latest release)

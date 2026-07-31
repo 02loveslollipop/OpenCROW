@@ -21,13 +21,13 @@ OpenCROW is distributed via GitHub Releases. End users do not need to clone the 
 To install the OpenCROW CLI, run the single-command remote installer:
 
 ```bash
-curl -fsSL https://opencrow.02labs.me/release/opencrow-cli.sh | bash
+curl -fsSL https://opencrow.02labs.me/releases/cli.sh | bash
 ```
 
 To install a specific version release:
 
 ```bash
-curl -fsSL https://opencrow.02labs.me/release/opencrow-cli.sh | bash -s -- --version v1.0.0
+curl -fsSL https://opencrow.02labs.me/releases/cli.sh | bash -s -- --version v1.0.0
 ```
 
 ### 2. Deploying OpenCROW Constellation (Docker)
