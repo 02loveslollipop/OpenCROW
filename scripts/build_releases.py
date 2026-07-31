@@ -65,7 +65,27 @@ def main() -> None:
     shutil.copy2(opencrow_sh_source, pages_dir / "release" / "opencrow-cli.sh")
     shutil.copy2(opencrow_sh_source, pages_dir / "opencrow-cli.sh")
     shutil.copy2(opencrow_sh_source, pages_dir / "opencrow.sh")
-    print(f"[+] Prepared Cloudflare Pages assets in {pages_dir}")
+
+    # Cloudflare Pages _redirects file for root URL redirect
+    redirects_content = "/ https://github.com/02loveslollipop/OpenCROW 302\n"
+    (pages_dir / "_redirects").write_text(redirects_content, encoding="utf-8")
+
+    # Fallback index.html with meta refresh redirect to GitHub repository
+    index_html_content = """<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="0; url=https://github.com/02loveslollipop/OpenCROW">
+  <link rel="canonical" href="https://github.com/02loveslollipop/OpenCROW">
+  <title>Redirecting to OpenCROW GitHub Repository...</title>
+</head>
+<body>
+  <p>Redirecting to <a href="https://github.com/02loveslollipop/OpenCROW">OpenCROW GitHub Repository</a>...</p>
+</body>
+</html>
+"""
+    (pages_dir / "index.html").write_text(index_html_content, encoding="utf-8")
+
+    print(f"[+] Prepared Cloudflare Pages assets & root redirect in {pages_dir}")
 
     print("==> Release build completed successfully.")
 
