@@ -59,12 +59,16 @@ def main() -> None:
     pages_dir = ROOT_DIR / "dist-pages"
     if pages_dir.exists():
         shutil.rmtree(pages_dir)
+    (pages_dir / "releases").mkdir(parents=True, exist_ok=True)
     (pages_dir / "release").mkdir(parents=True, exist_ok=True)
 
     opencrow_sh_source = ROOT_DIR / "scripts" / "opencrow.sh"
+    shutil.copy2(opencrow_sh_source, pages_dir / "releases" / "cli.sh")
+    shutil.copy2(opencrow_sh_source, pages_dir / "releases" / "opencrow-cli.sh")
     shutil.copy2(opencrow_sh_source, pages_dir / "release" / "opencrow-cli.sh")
     shutil.copy2(opencrow_sh_source, pages_dir / "opencrow-cli.sh")
     shutil.copy2(opencrow_sh_source, pages_dir / "opencrow.sh")
+    shutil.copy2(opencrow_sh_source, pages_dir / "cli.sh")
 
     # Cloudflare Pages _redirects file for root URL redirect
     redirects_content = "/ https://github.com/02loveslollipop/OpenCROW 302\n"
