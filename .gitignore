@@ -3,7 +3,9 @@ __pycache__/
 .opencrow-constellation/
 constellation/private/
 dist/
+dist-pages/
 .pytest_cache/
 .vscode/
 .agents/
 .jules/
+NEXT_STEP.md
