@@ -260,6 +260,34 @@ def test_codex_cli_purge_uses_recorded_npm_prefix(
     ]
 
 
+def test_opencode_cli_purge_uses_native_keep_data_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = paths_for(tmp_path)
+    commands: list[list[str]] = []
+    monkeypatch.setattr("opencrow_manager.shutil.which", lambda command: f"/usr/bin/{command}")
+
+    def run(command, **_kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("opencrow_manager.subprocess.run", run)
+    state = {"package_methods": {"agent_clis": {"installed": ["opencode"]}}}
+    removed, unresolved = StateEngine(paths)._purge_agent_clis(state)
+    assert removed == ["opencode"] and unresolved == []
+    assert commands == [["opencode", "uninstall", "--force", "--keep-config", "--keep-data"]]
+
+
+def test_opencode_v2_config_shape_is_selected_from_detected_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = paths_for(tmp_path)
+    monkeypatch.setattr("opencrow_manager.command_version", lambda _command: "opencode 2.1.0")
+    StateEngine(paths).install(source=REPOSITORY, mode="skills", agents=["opencode"])
+    config = json.loads((paths.home / ".config/opencode/opencode.json").read_text())
+    assert "opencrow-lifecycle" in config["mcp"]["servers"]
+
+
 def test_agent_cli_receipts_survive_desired_state_merge() -> None:
     from opencrow_manager import merge_package_history
 
