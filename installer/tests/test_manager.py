@@ -232,6 +232,58 @@ def test_receipt_owned_vendor_cli_paths_are_purgeable(
     assert not target.exists()
 
 
+def test_claude_receipt_purge_preserves_configuration(tmp_path: Path) -> None:
+    paths = paths_for(tmp_path)
+    install_root = paths.home / ".local/share/claude"
+    install_root.mkdir(parents=True)
+    (install_root / "version").write_text("2.1.0")
+    configuration = paths.home / ".claude/settings.json"
+    configuration.parent.mkdir(parents=True)
+    configuration.write_text('{"theme":"dark"}\n')
+    state = {
+        "package_methods": {
+            "agent_clis": {
+                "installed": ["claude"],
+                "receipts": {"claude": {"owned_paths": [{"path": str(install_root)}]}},
+            }
+        }
+    }
+    removed, unresolved = StateEngine(paths)._purge_agent_clis(state)
+    assert removed == ["claude"] and unresolved == []
+    assert not install_root.exists()
+    assert configuration.read_text() == '{"theme":"dark"}\n'
+
+
+def test_agent_cli_receipt_helper_detects_new_claude_install_root(tmp_path: Path) -> None:
+    helper = REPOSITORY / "installer/lib/agent_cli_receipts.py"
+    home = tmp_path / "home"
+    home.mkdir()
+    before = subprocess.check_output(
+        [sys.executable, str(helper), "snapshot", "--home", str(home), "--providers", "claude"],
+        text=True,
+    ).strip()
+    install_root = home / ".local/share/claude"
+    install_root.mkdir(parents=True)
+    (install_root / "version").write_text("2.1.0")
+    value = json.loads(
+        subprocess.check_output(
+            [
+                sys.executable,
+                str(helper),
+                "receipts",
+                "--home",
+                str(home),
+                "--providers",
+                "claude",
+                "--before",
+                before,
+            ],
+            text=True,
+        )
+    )
+    assert str(install_root) in {item["path"] for item in value["claude"]["owned_paths"]}
+
+
 def test_vendor_cli_purge_without_receipt_is_unresolved(tmp_path: Path) -> None:
     paths = paths_for(tmp_path)
     state = {"package_methods": {"agent_clis": {"installed": ["claude"]}}}

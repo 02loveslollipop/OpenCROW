@@ -59,6 +59,24 @@ def test_opencode_process_adapter_streams_json_and_native_session_id(tmp_path: P
     assert resume[resume.index("--session") + 1] == "oc-native"
 
 
+def test_claude_process_adapter_streams_json_and_resumes_native_session(tmp_path: Path) -> None:
+    executable = tmp_path / "claude-fixture"
+    executable.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' '{\"type\":\"system\",\"session_id\":\"claude-native\"}'\n"
+        "printf '%s\\n' '{\"type\":\"result\",\"result\":\"done\"}'\n"
+    )
+    executable.chmod(0o755)
+    adapter = ClaudeAdapter(command=str(executable))
+    events = list(adapter.start(prompt="solve", workspace=tmp_path).stream())
+    assert adapter.extract_session_id(events[0]) == "claude-native"
+    assert events[-1]["result"] == "done"
+    resume = adapter.resume_command(
+        session_id="claude-native", prompt="continue", workspace=tmp_path, model=None
+    )
+    assert resume[resume.index("--resume") + 1] == "claude-native"
+
+
 @pytest.mark.parametrize(
     ("event", "expected"),
     [
