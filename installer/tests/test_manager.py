@@ -284,6 +284,55 @@ def test_agent_cli_receipt_helper_detects_new_claude_install_root(tmp_path: Path
     assert str(install_root) in {item["path"] for item in value["claude"]["owned_paths"]}
 
 
+def test_agent_cli_receipt_helper_detects_new_antigravity_binary(tmp_path: Path) -> None:
+    helper = REPOSITORY / "installer/lib/agent_cli_receipts.py"
+    home = tmp_path / "home"
+    home.mkdir()
+    before = subprocess.check_output(
+        [sys.executable, str(helper), "snapshot", "--home", str(home), "--providers", "antigravity"],
+        text=True,
+    ).strip()
+    binary = home / ".local/bin/agy"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("agy")
+    value = json.loads(
+        subprocess.check_output(
+            [
+                sys.executable,
+                str(helper),
+                "receipts",
+                "--home",
+                str(home),
+                "--providers",
+                "antigravity",
+                "--before",
+                before,
+            ],
+            text=True,
+        )
+    )
+    assert str(binary) in {item["path"] for item in value["antigravity"]["owned_paths"]}
+
+
+def test_antigravity_receipt_outside_target_home_is_preserved(tmp_path: Path) -> None:
+    paths = paths_for(tmp_path)
+    outside = tmp_path / "shared/agy"
+    outside.parent.mkdir(parents=True)
+    outside.write_text("user owned")
+    state = {
+        "package_methods": {
+            "agent_clis": {
+                "installed": ["antigravity"],
+                "receipts": {"antigravity": {"owned_paths": [{"path": str(outside)}]}},
+            }
+        }
+    }
+    removed, unresolved = StateEngine(paths)._purge_agent_clis(state)
+    assert removed == []
+    assert "unsafe receipt path" in unresolved[0]
+    assert outside.read_text() == "user owned"
+
+
 def test_vendor_cli_purge_without_receipt_is_unresolved(tmp_path: Path) -> None:
     paths = paths_for(tmp_path)
     state = {"package_methods": {"agent_clis": {"installed": ["claude"]}}}

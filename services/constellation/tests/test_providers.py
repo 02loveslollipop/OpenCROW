@@ -77,6 +77,24 @@ def test_claude_process_adapter_streams_json_and_resumes_native_session(tmp_path
     assert resume[resume.index("--resume") + 1] == "claude-native"
 
 
+def test_antigravity_process_adapter_streams_json_and_resumes_conversation(tmp_path: Path) -> None:
+    executable = tmp_path / "agy-fixture"
+    executable.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' '{\"type\":\"conversation\",\"conversationId\":\"agy-native\"}'\n"
+        "printf '%s\\n' '{\"type\":\"result\",\"text\":\"done\"}'\n"
+    )
+    executable.chmod(0o755)
+    adapter = AntigravityAdapter(command=str(executable))
+    events = list(adapter.start(prompt="solve", workspace=tmp_path).stream())
+    assert adapter.extract_session_id(events[0]) == "agy-native"
+    assert events[-1]["text"] == "done"
+    resume = adapter.resume_command(
+        session_id="agy-native", prompt="continue", workspace=tmp_path, model=None
+    )
+    assert resume[resume.index("--conversation") + 1] == "agy-native"
+
+
 @pytest.mark.parametrize(
     ("event", "expected"),
     [
