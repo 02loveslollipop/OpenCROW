@@ -249,7 +249,15 @@ class RuntimeSocket:
             raise RuntimeError(f"Runtime {self.runtime_id} does not advertise provider {provider}; no fallback is allowed.")
         availability = adapter.availability()
         if not availability.available:
-            raise RuntimeError(f"Provider {provider} is unavailable on runtime {self.runtime_id}.")
+            raise RuntimeError(
+                f"Provider {provider} is unavailable on runtime {self.runtime_id}: "
+                f"{availability.reason or 'command unavailable'}"
+            )
+        if availability.compatibility == "incompatible":
+            raise RuntimeError(
+                f"Provider {provider} is incompatible on runtime {self.runtime_id}: "
+                f"{availability.reason or 'minimum version is not satisfied'}"
+            )
         self._send({"action": "agent_state", "agent_id": agent_id, "status": "running", "workspace_path": str(workspace)})
         turn: ProviderTurn
         resuming = bool(provider_session_id)
@@ -370,9 +378,9 @@ class RuntimeSocket:
         return "reconnaissance"
 
     @staticmethod
-    def _document_versions(workspace: Path) -> dict[str, int]:
+    def _document_versions(workspace: Path) -> dict[str, str]:
         return {
-            name: (workspace / name).stat().st_mtime_ns
+            name: hashlib.sha256((workspace / name).read_bytes()).hexdigest()
             for name in ("CHALLENGE.md", "FINDINGS.md", "CHANGELOG.md", "HANDOFF.md", "WRITEUP.md")
             if (workspace / name).exists()
         }
@@ -383,14 +391,14 @@ class RuntimeSocket:
         phase: str,
         *,
         started_phase: str | None = None,
-        previous_versions: dict[str, int] | None = None,
+        previous_versions: dict[str, str] | None = None,
     ) -> list[str]:
         blockers: list[str] = []
         previous_versions = previous_versions or {}
         current_versions = RuntimeSocket._document_versions(workspace)
 
         def changed(name: str) -> bool:
-            return current_versions.get(name, 0) > previous_versions.get(name, 0)
+            return current_versions.get(name) != previous_versions.get(name)
 
         findings = (workspace / "FINDINGS.md").read_text(encoding="utf-8", errors="ignore") if (workspace / "FINDINGS.md").exists() else ""
         changelog = (workspace / "CHANGELOG.md").read_text(encoding="utf-8", errors="ignore") if (workspace / "CHANGELOG.md").exists() else ""
@@ -452,7 +460,7 @@ class RuntimeSocket:
         original = f"Title: {title}\nCategory: {category}\n\n{description}"
         if urls:
             original += "\n\nChallenge files/URLs:\n" + "\n".join(f"- {value}" for value in urls)
-        existing_clarifications = "_No clarifications have been recorded._"
+        existing_clarifications = "_Clarifications are appended below; this marker is intentionally retained._"
         challenge_path = workspace / "CHALLENGE.md"
         if challenge_path.exists():
             existing = challenge_path.read_text(encoding="utf-8", errors="ignore")

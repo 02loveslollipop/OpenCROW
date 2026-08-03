@@ -45,6 +45,7 @@ _selector_plain() {
     [[ "$index" =~ ^[0-9]+$ ]] || continue
     (( index >= 1 && index <= ${#options[@]} )) && SELECTED_VALUES+=("${options[$((index - 1))]}")
   done
+  return 0
 }
 
 select_many() {
@@ -109,6 +110,7 @@ select_many() {
   for cursor in "${!options[@]}"; do
     (( selected[cursor] )) && SELECTED_VALUES+=("${options[cursor]}")
   done
+  return 0
 }
 
 join_by_comma() {

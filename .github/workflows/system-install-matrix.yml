@@ -1,0 +1,21 @@
+name: Actual Linux Installation Matrix
+
+on:
+  schedule:
+    - cron: "43 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:24.04", "fedora:42", "archlinux:latest"]
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test_system_install.sh "$GITHUB_WORKSPACE"

@@ -85,6 +85,14 @@ def test_phase_transitions_and_append_only_history(tmp_path: Path) -> None:
     assert not engine.validate_completion(solved=True).valid
     assert "only one phase" in " ".join(engine.validate_completion(solved=True).blockers)
     engine.initialize("AcmeCTF Orbital Lock: recover the flag from service.bin", provider="codex")
+    engine.writeup(
+        title="Independent verification",
+        summary="Rechecked the solve",
+        solution="Repeated the parser inversion.",
+        reproduce="python3 solve.py",
+        evidence="service prints accepted again",
+        verification="Verified in a fresh invocation.",
+    )
     assert engine.validate_completion(solved=True).valid
 
 
@@ -141,6 +149,71 @@ def test_warn_and_off_enforcement(tmp_path: Path) -> None:
     engine.config_path.write_text(json.dumps(config))
     validation = engine.validate_completion()
     assert validation.valid and not validation.warnings
+
+
+def test_direct_append_is_accepted_and_destructive_edit_is_snapshotted(tmp_path: Path) -> None:
+    engine = initialized(tmp_path)
+    findings = tmp_path / "FINDINGS.md"
+    original = findings.read_text()
+    findings.write_text(original + "\n## F-0001 — Direct\n\n- Status: `confirmed`\n")
+    assert engine.reconcile_history().valid
+    state = json.loads(engine.state_path.read_text())
+    accepted = tmp_path / ".opencrow" / state["accepted_documents"]["FINDINGS.md"]["snapshot"]
+    assert accepted.read_text() == findings.read_text()
+
+    findings.write_text("# Findings\n\nreplacement\n")
+    validation = engine.reconcile_history()
+    assert not validation.valid
+    assert "discarded or replaced" in " ".join(validation.blockers)
+    rejected = state = json.loads(engine.state_path.read_text())
+    rejected_path = tmp_path / ".opencrow" / rejected["rejected_documents"]["FINDINGS.md"]["snapshot"]
+    assert rejected_path.read_text() == findings.read_text()
+    assert accepted.read_text().startswith(original)
+
+
+def test_destructive_direct_edit_warns_or_logs_when_configured(tmp_path: Path) -> None:
+    engine = initialized(tmp_path)
+    findings = tmp_path / "FINDINGS.md"
+    findings.write_text("destroyed\n")
+    config = engine.read_config()
+    config["enforcement"] = "warn"
+    engine.config_path.write_text(json.dumps(config))
+    validation = engine.reconcile_history()
+    assert validation.valid and validation.warnings
+    code, response = handle("post_tool", "codex", {"tool_name": "edit"}, tmp_path)
+    assert code == 0 and response["warnings"]
+    config["enforcement"] = "off"
+    engine.config_path.write_text(json.dumps(config))
+    validation = engine.reconcile_history()
+    assert validation.valid and not validation.warnings
+    events = (tmp_path / ".opencrow/events.jsonl").read_text()
+    assert "history_violation" in events
+
+
+def test_compaction_preserves_invocation_hash_baseline(tmp_path: Path) -> None:
+    engine = initialized(tmp_path)
+    before = json.loads(engine.state_path.read_text())["invocation"]
+    code, _ = handle("compaction", "codex", {}, tmp_path)
+    after = json.loads(engine.state_path.read_text())["invocation"]
+    assert code == 0
+    assert before == after
+
+
+def test_old_recon_evidence_cannot_complete_a_new_invocation(tmp_path: Path) -> None:
+    engine = initialized(tmp_path)
+    engine.record_finding(title="Format", finding="ELF", evidence="file target")
+    engine.record_attempt(
+        hypothesis="Native", action="Inspect", command="file target", outcome="ELF",
+        evidence="stdout", status="succeeded", next_action="handoff",
+    )
+    engine.begin_invocation(phase="reconnaissance")
+    engine.update_handoff(
+        summary="Old evidence", evidence="F-0001", failures="None", artifacts="target",
+        reproduce="file target", next_actions="Disassemble",
+    )
+    blockers = " ".join(engine.validate_completion().blockers)
+    assert "current-invocation FINDINGS.md" in blockers
+    assert "current-invocation CHANGELOG.md" in blockers
 
 
 def test_hook_failure_is_visible_and_fails_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

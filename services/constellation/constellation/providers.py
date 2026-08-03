@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -111,6 +112,50 @@ class Availability:
     available: bool
     command: str
     version: str | None
+    minimum_version: str | None = None
+    compatibility: str = "unknown"
+    reason: str | None = None
+
+
+def _parse_semver(value: str | None) -> tuple[int, int, int, str | None] | None:
+    if not value:
+        return None
+    match = re.search(r"(?<!\d)v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?", value)
+    if not match:
+        return None
+    return int(match[1]), int(match[2]), int(match[3]), match[4]
+
+
+def _minimum_version(provider: str) -> str | None:
+    override = os.environ.get("OPENCROW_INTEGRATIONS_MANIFEST")
+    candidates = [Path(override)] if override else []
+    candidates.extend(
+        [
+            Path(__file__).resolve().parents[3] / "integrations" / "manifest.json",
+            Path("/app/integrations/manifest.json"),
+        ]
+    )
+    for path in candidates:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            minimum = value["providers"][provider]["minimum_version"]
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            continue
+        return str(minimum)
+    return None
+
+
+def _compatibility(version: str | None, minimum: str | None) -> tuple[str, str | None]:
+    actual = _parse_semver(version)
+    required = _parse_semver(minimum)
+    if actual is None or required is None:
+        return "unknown", f"Could not verify detected version {version or 'unavailable'} against {minimum or 'unknown minimum'}."
+    supported = actual[:3] > required[:3] or (
+        actual[:3] == required[:3] and not (actual[3] and not required[3])
+    )
+    if supported:
+        return "compatible", None
+    return "incompatible", f"Detected version {version} is below required minimum {minimum}."
 
 
 class ProviderAdapter(ABC):
@@ -122,9 +167,12 @@ class ProviderAdapter(ABC):
         self.model = model
 
     def availability(self) -> Availability:
+        minimum = _minimum_version(self.provider)
         executable = shutil.which(self.command)
         if not executable:
-            return Availability(self.provider, False, self.command, None)
+            return Availability(
+                self.provider, False, self.command, None, minimum, "unknown", "Provider command is unavailable."
+            )
         try:
             result = subprocess.run(
                 [executable, "--version"], capture_output=True, text=True, timeout=5, check=False
@@ -132,7 +180,8 @@ class ProviderAdapter(ABC):
             version = (result.stdout or result.stderr).strip().splitlines()[0]
         except (OSError, subprocess.SubprocessError, IndexError):
             version = "installed (version unavailable)"
-        return Availability(self.provider, True, executable, version)
+        compatibility, reason = _compatibility(version, minimum)
+        return Availability(self.provider, True, executable, version, minimum, compatibility, reason)
 
     def start(self, *, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:
         return ProcessTurn(self.start_command(prompt=prompt, workspace=workspace, model=model), cwd=workspace, environment=self.environment())
@@ -286,7 +335,15 @@ class CodexAdapter(ProviderAdapter):
         try:
             import openai_codex  # noqa: F401
         except Exception:
-            return Availability(self.provider, False, self.command, base.version)
+            return Availability(
+                self.provider,
+                False,
+                base.command,
+                base.version,
+                base.minimum_version,
+                base.compatibility,
+                "Codex CLI is installed but the openai-codex SDK is unavailable.",
+            )
         return base
 
     def start(self, *, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:

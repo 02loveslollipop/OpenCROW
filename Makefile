@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help install skills dry-run smoke test e2e docs wiki build-releases
+.PHONY: help install skills dry-run smoke test e2e docs wiki build-releases distro-e2e
 
 help:
 	@echo "OpenCROW v2 targets:"
@@ -12,6 +12,7 @@ help:
 	@echo "  make e2e               Exercise skills install/update/rollback/uninstall in isolation"
 	@echo "  make wiki              Generate the public Wiki tree"
 	@echo "  make build-releases    Build development release assets"
+	@echo "  make distro-e2e        Run actual installs in disposable distro containers"
 
 skills:
 	bash installer/skills.sh
@@ -33,6 +34,9 @@ build-releases:
 
 e2e:
 	bash scripts/test_installation_e2e.sh
+
+distro-e2e:
+	bash scripts/test_distro_matrix.sh
 
 smoke:
 	bash -n install.sh skills.sh installer/install.sh installer/skills.sh installer/lib/*.sh scripts/*.sh

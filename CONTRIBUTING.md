@@ -4,4 +4,4 @@ Use the branch flow and tests documented in [release procedure](docs/contributor
 
 Repository Markdown is authoritative. Public Wiki pages are generated only from `docs/wiki-manifest.json`. Direct edits to generated Wiki pages are unsupported and will be overwritten during the next stable release. Change the repository source and manifest in a pull request instead.
 
-Run `make test`, `make smoke`, and `python3 scripts/validate_docs.py` before submitting.
+Run `make test`, `make smoke`, and `python3 scripts/validate_docs.py` before submitting. Maintainers can run `make distro-e2e` on a Docker host for the actual full/skills installation matrix.

@@ -74,17 +74,32 @@ def handle(event: str, provider: str, payload: dict[str, Any], workspace: Path) 
     if not engine.active:
         return 0, {"continue": True}
     if event in {"session_start", "start", "compact", "compaction"}:
+        source = str(payload.get("source") or payload.get("matcher") or "").lower()
+        if event in {"session_start", "start"} and source != "compact":
+            integrity = engine.begin_invocation()
+        else:
+            integrity = engine.reconcile_history()
+            if integrity.blockers:
+                return 2, {"decision": "block", "reason": "\n".join(integrity.blockers)}
         engine.verify_original_challenge()
         engine.event(event, {"provider": provider})
         context = _context(engine)
         if provider == "claude":
-            return 0, {
+            response = {
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart" if "start" in event else "PreCompact",
                     "additionalContext": context,
                 }
             }
-        return 0, {"continue": True, "additionalContext": context, "phase": engine.phase}
+            if integrity.warnings:
+                response["warning"] = "\n".join(integrity.warnings)
+            return 0, response
+        return 0, {
+            "continue": True,
+            "additionalContext": context,
+            "phase": engine.phase,
+            "warnings": list(integrity.warnings),
+        }
     if event in {"pre_tool", "post_tool", "after_tool"}:
         query = _tool_query(payload)
         if query:
@@ -93,9 +108,12 @@ def handle(event: str, provider: str, payload: dict[str, Any], workspace: Path) 
             if reason:
                 engine.event("writeup_search_blocked", {"query": query, "provider": provider})
                 return 2, {"decision": "block", "reason": reason}
+        integrity = engine.reconcile_history()
+        if integrity.blockers:
+            return 2, {"decision": "block", "reason": "\n".join(integrity.blockers)}
         engine.verify_original_challenge()
         engine.event("tool_observed", {"provider": provider, "tool": payload.get("tool_name") or payload.get("tool")})
-        return 0, {"continue": True}
+        return 0, {"continue": True, "warnings": list(integrity.warnings)}
     if event in {"stop", "idle", "session_stop"}:
         reason_text = str(payload.get("reason") or payload.get("stop_reason") or "")
         if NEVER_BLOCK_REASONS.search(reason_text):

@@ -182,7 +182,11 @@ class ConstellationStorage:
         providers = capabilities.get("providers")
         if isinstance(providers, dict):
             value = providers.get(provider)
-            return bool(value.get("available")) if isinstance(value, dict) else bool(value)
+            return (
+                bool(value.get("available")) and value.get("compatibility", "unknown") != "incompatible"
+                if isinstance(value, dict)
+                else bool(value)
+            )
         if isinstance(providers, list):
             return provider in providers
         return False

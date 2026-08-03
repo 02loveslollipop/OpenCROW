@@ -7,6 +7,8 @@ Deep test evidence must be reproducible without publishing private filesystem pa
 - Provider scheduling, runtime protocol, session recovery, lifecycle artifacts, recon-to-solve continuation, and workspace isolation tests in `services/constellation/tests/`.
 - Wiki generation, redirects, immutable metadata, link validation, sidebar order, CLI examples, compatibility manifests, and secret scanning in `tests/` and `scripts/validate_docs.py`.
 
-Scheduled compatibility runs install real provider CLIs through their vendor-owned channels. Authenticated turns run only when protected CI secrets explicitly enable them; test output must never contain challenge secrets.
+Scheduled compatibility runs install real provider CLIs through their vendor-owned channels. A separate disposable-container matrix performs actual full and skills-only installs on Ubuntu, Fedora, and Arch; release validation runs the same matrix before publication. Authenticated turns run only when protected CI secrets explicitly enable them; test output must never contain challenge secrets.
+
+Wiki synchronization is tested against a local bare Git remote for deterministic reruns and injected pre-push failure. Provider recovery tests require a failed native resume to be written to lifecycle history and the replacement native session ID to be saved.
 
 Release evidence is the test summary for the annotated tag plus the checksummed release manifest. Raw logs containing provider output are retained only through the repository's access-controlled CI retention policy.

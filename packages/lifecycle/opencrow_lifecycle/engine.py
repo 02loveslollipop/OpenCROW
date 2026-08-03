@@ -36,7 +36,7 @@ CHALLENGE_TEMPLATE = """# Challenge
 
 ## Clarifications
 
-_No clarifications have been recorded._
+_Clarifications are appended below; this marker is intentionally retained._
 """
 FINDINGS_TEMPLATE = """# Findings
 
@@ -129,6 +129,8 @@ class WorkflowEngine:
         self.meta_dir = self.workspace / ".opencrow"
         self.config_path = self.meta_dir / "config.json"
         self.events_path = self.meta_dir / "events.jsonl"
+        self.state_path = self.meta_dir / "state.json"
+        self.history_dir = self.meta_dir / "history"
 
     def path(self, name: str) -> Path:
         if name not in CANONICAL_DOCUMENTS:
@@ -186,6 +188,10 @@ class WorkflowEngine:
         if enforcement not in ENFORCEMENT_LEVELS:
             raise LifecycleError("Lifecycle enforcement must be strict, warn, or off.")
         invocation_started_phase = self.phase if self.active else "reconnaissance"
+        if self.active:
+            integrity = self.reconcile_history()
+            if integrity.blockers:
+                raise LifecycleError("\n".join(integrity.blockers))
         challenge_value = CHALLENGE_TEMPLATE.format(description=description)
         original_hash = _digest(description)
         config = {
@@ -220,8 +226,168 @@ class WorkflowEngine:
         if not self.path("CHANGELOG.md").exists():
             _atomic_write(self.path("CHANGELOG.md"), CHANGELOG_TEMPLATE)
         _atomic_write(self.config_path, json.dumps(config, indent=2, sort_keys=True) + "\n")
+        self.begin_invocation(phase=invocation_started_phase)
         self.event("workspace_initialized", {"provider": provider, "model": model})
         return {"ok": True, "dry_run": False, "changes": changes, "phase": self.phase}
+
+    def _read_state(self) -> dict[str, Any]:
+        if not self.state_path.exists():
+            return {
+                "schema_version": 1,
+                "sequence": 0,
+                "accepted_documents": {},
+                "rejected_documents": {},
+                "invocation": {},
+            }
+        try:
+            value = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise LifecycleError(f"Invalid .opencrow/state.json: {exc}") from exc
+        if not isinstance(value, dict) or value.get("schema_version") != 1:
+            raise LifecycleError("Unsupported .opencrow/state.json schema.")
+        value.setdefault("sequence", 0)
+        value.setdefault("accepted_documents", {})
+        value.setdefault("rejected_documents", {})
+        value.setdefault("invocation", {})
+        return value
+
+    def _write_state(self, state: dict[str, Any]) -> None:
+        self.meta_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_write(self.state_path, json.dumps(state, indent=2, sort_keys=True) + "\n")
+
+    @staticmethod
+    def _document_value(path: Path) -> tuple[bool, str]:
+        exists = path.is_file()
+        return exists, path.read_text(encoding="utf-8") if exists else ""
+
+    def _snapshot(
+        self,
+        state: dict[str, Any],
+        name: str,
+        content: str,
+        *,
+        exists: bool,
+        disposition: str,
+    ) -> dict[str, Any]:
+        state["sequence"] = int(state.get("sequence", 0)) + 1
+        sequence = int(state["sequence"])
+        digest = _digest(content)
+        directory = self.history_dir / disposition / name.removesuffix(".md")
+        snapshot = directory / f"{sequence:08d}-{digest}.md"
+        _atomic_write(snapshot, content)
+        return {
+            "exists": exists,
+            "sha256": digest,
+            "snapshot": str(snapshot.relative_to(self.meta_dir)),
+            "sequence": sequence,
+            "recorded_at": utc_now(),
+        }
+
+    def _accepted_content(self, record: dict[str, Any]) -> str:
+        snapshot = record.get("snapshot")
+        if not isinstance(snapshot, str):
+            raise LifecycleError("Lifecycle history state is missing an accepted snapshot path.")
+        path = self.meta_dir / snapshot
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise LifecycleError(f"Lifecycle history snapshot is unavailable: {snapshot}: {exc}") from exc
+
+    def reconcile_history(self) -> Validation:
+        """Accept append-only direct edits and retain evidence of destructive edits."""
+
+        state = self._read_state()
+        accepted = state["accepted_documents"]
+        rejected = state["rejected_documents"]
+        blockers: list[str] = []
+        new_rejections: list[str] = []
+        changed = False
+        for name in CANONICAL_DOCUMENTS:
+            path = self.path(name)
+            exists, current = self._document_value(path)
+            current_digest = _digest(current)
+            record = accepted.get(name)
+            if not isinstance(record, dict):
+                if exists:
+                    accepted[name] = self._snapshot(
+                        state, name, current, exists=True, disposition="accepted"
+                    )
+                    changed = True
+                continue
+            previous_exists = bool(record.get("exists", True))
+            if exists == previous_exists and current_digest == record.get("sha256"):
+                continue
+            previous = self._accepted_content(record)
+            if exists and (not previous_exists or current.startswith(previous)):
+                accepted[name] = self._snapshot(
+                    state, name, current, exists=True, disposition="accepted"
+                )
+                rejected.pop(name, None)
+                changed = True
+                continue
+            prior_rejection = rejected.get(name)
+            rejection_key = f"{int(exists)}:{current_digest}"
+            if not isinstance(prior_rejection, dict) or prior_rejection.get("key") != rejection_key:
+                rejected_record = self._snapshot(
+                    state, name, current, exists=exists, disposition="rejected"
+                )
+                rejected_record["key"] = rejection_key
+                rejected[name] = rejected_record
+                changed = True
+                new_rejections.append(name)
+            blockers.append(
+                f"{name} discarded or replaced accepted history; restore the accepted snapshot "
+                f"`.opencrow/{record['snapshot']}` and append the intended revision."
+            )
+        if changed or not self.state_path.exists():
+            self._write_state(state)
+        for name in new_rejections:
+            self.event("history_violation", {"document": name, "enforcement": self.enforcement})
+        if self.enforcement == "warn" and blockers:
+            return Validation(True, (), tuple(blockers))
+        if self.enforcement == "off":
+            return Validation(True, (), ())
+        return Validation(not blockers, tuple(blockers), ())
+
+    def begin_invocation(self, *, phase: str | None = None) -> Validation:
+        integrity = self.reconcile_history()
+        if integrity.blockers:
+            raise LifecycleError("\n".join(integrity.blockers))
+        state = self._read_state()
+        documents: dict[str, Any] = {}
+        for name in CANONICAL_DOCUMENTS:
+            exists, content = self._document_value(self.path(name))
+            documents[name] = {"exists": exists, "sha256": _digest(content)}
+        state["invocation"] = {
+            "started_at": utc_now(),
+            "phase": phase or self.phase,
+            "documents": documents,
+            "sequence": int(state.get("sequence", 0)),
+        }
+        self._write_state(state)
+        return integrity
+
+    def _changed_in_invocation(self, name: str) -> bool:
+        state = self._read_state()
+        baseline = state.get("invocation", {}).get("documents", {}).get(name, {})
+        exists, content = self._document_value(self.path(name))
+        return bool(baseline) and (
+            bool(baseline.get("exists")) != exists or baseline.get("sha256") != _digest(content)
+        )
+
+    def _document_sequence(self, name: str) -> int:
+        record = self._read_state().get("accepted_documents", {}).get(name, {})
+        return int(record.get("sequence", 0)) if isinstance(record, dict) else 0
+
+    def _prepare_managed_write(self) -> None:
+        integrity = self.reconcile_history()
+        if integrity.blockers:
+            raise LifecycleError("\n".join(integrity.blockers))
+
+    def _finish_managed_write(self) -> None:
+        integrity = self.reconcile_history()
+        if integrity.blockers:
+            raise LifecycleError("\n".join(integrity.blockers))
 
     def verify_original_challenge(self) -> None:
         if not self.active:
@@ -278,20 +444,20 @@ class WorkflowEngine:
         return {"phase": self.phase, "documents": result, "max_bytes": max_bytes}
 
     def add_clarification(self, clarification: str, *, source: str, evidence: str) -> dict[str, Any]:
+        self._prepare_managed_write()
         self.verify_original_challenge()
         if not all(value.strip() for value in (clarification, source, evidence)):
             raise LifecycleError("Clarification, source, and evidence are required.")
         challenge_path = self.path("CHALLENGE.md")
-        text = challenge_path.read_text(encoding="utf-8")
-        text = text.replace("_No clarifications have been recorded._", "").rstrip()
         entry = (
-            f"\n\n### {utc_now()}\n\n"
+            f"### {utc_now()}\n\n"
             f"{clarification.strip()}\n\n"
             f"- Source: {source.strip()}\n"
             f"- Evidence: {evidence.strip()}\n"
         )
-        _atomic_write(challenge_path, text + entry)
+        _append(challenge_path, entry)
         self.verify_original_challenge()
+        self._finish_managed_write()
         self.event("clarification_added", {"source": source, "evidence": evidence})
         return {"ok": True, "phase": self.phase}
 
@@ -316,6 +482,7 @@ class WorkflowEngine:
         status: str,
         next_action: str,
     ) -> dict[str, Any]:
+        self._prepare_managed_write()
         values = (hypothesis, action, command, outcome, evidence, next_action)
         if not all(str(value).strip() for value in values):
             raise LifecycleError("Attempts require hypothesis, action, command/input, outcome, evidence, and next action.")
@@ -334,6 +501,7 @@ class WorkflowEngine:
             f"- Next action: {next_action.strip()}\n"
         )
         _append(self.path("CHANGELOG.md"), entry)
+        self._finish_managed_write()
         self.event("attempt_recorded", {"id": attempt_id, "status": status})
         return {"ok": True, "attempt_id": attempt_id, "time": timestamp}
 
@@ -347,6 +515,7 @@ class WorkflowEngine:
         finding_id: str | None = None,
         supersedes: str | None = None,
     ) -> dict[str, Any]:
+        self._prepare_managed_write()
         if status not in FINDING_STATUSES:
             raise LifecycleError(f"Finding status must be one of: {', '.join(sorted(FINDING_STATUSES))}")
         if not all(value.strip() for value in (title, finding, evidence)):
@@ -363,6 +532,7 @@ class WorkflowEngine:
             + f"- Evidence: {evidence.strip()}\n\n{finding.strip()}\n"
         )
         _append(self.path("FINDINGS.md"), entry)
+        self._finish_managed_write()
         self.event("finding_recorded", {"id": finding_id, "status": status})
         return {"ok": True, "finding_id": finding_id, "status": status}
 
@@ -376,6 +546,7 @@ class WorkflowEngine:
         reproduce: str,
         next_actions: str,
     ) -> dict[str, Any]:
+        self._prepare_managed_write()
         if not all(value.strip() for value in (summary, evidence, failures, artifacts, reproduce, next_actions)):
             raise LifecycleError("Handoff requires summary, evidence, failures, artifacts, reproduction, and exact next actions.")
         path = self.path("HANDOFF.md")
@@ -391,6 +562,7 @@ class WorkflowEngine:
             f"### Exact next actions\n\n{next_actions.strip()}\n"
         )
         _append(path, entry)
+        self._finish_managed_write()
         self.event("handoff_updated", {"phase_after": self.phase})
         return {"ok": True, "phase": self.phase}
 
@@ -405,6 +577,7 @@ class WorkflowEngine:
         flag: str | None = None,
         verification: str | None = None,
     ) -> dict[str, Any]:
+        self._prepare_managed_write()
         if not all(value.strip() for value in (title, summary, solution, reproduce, evidence)):
             raise LifecycleError("Writeup requires title, summary, solution, reproduction, and evidence.")
         path = self.path("WRITEUP.md")
@@ -420,6 +593,7 @@ class WorkflowEngine:
             + (f"### Verification\n\n{verification.strip()}\n" if verification and verification.strip() else "")
         )
         _append(path, entry)
+        self._finish_managed_write()
         self.event("writeup_recorded", {"title": title})
         return {"ok": True, "phase": self.phase}
 
@@ -428,48 +602,76 @@ class WorkflowEngine:
         warnings: list[str] = []
         if not self.active:
             return Validation(True, (), ())
+        integrity = self.reconcile_history()
+        blockers.extend(integrity.blockers)
+        warnings.extend(integrity.warnings)
         try:
             self.verify_original_challenge()
         except LifecycleError as exc:
             blockers.append(str(exc))
         phase = self.phase
         config = self.read_config()
-        invocation_started_phase = config.get("invocation_started_phase")
+        state = self._read_state()
+        invocation_started_phase = state.get("invocation", {}).get(
+            "phase", config.get("invocation_started_phase", phase)
+        )
         if invocation_started_phase == "reconnaissance" and phase == "completed":
             blockers.append("A local invocation may complete only one phase; stop after HANDOFF.md and start a solve invocation.")
         finding_text = self.path("FINDINGS.md").read_text(encoding="utf-8") if self.path("FINDINGS.md").exists() else ""
         change_text = self.path("CHANGELOG.md").read_text(encoding="utf-8") if self.path("CHANGELOG.md").exists() else ""
-        if phase == "reconnaissance":
+        if invocation_started_phase == "reconnaissance":
             if not re.search(r"(?m)^## F-\d{4,}\b", finding_text):
                 blockers.append("Reconnaissance requires at least one recorded finding in FINDINGS.md.")
+            elif not self._changed_in_invocation("FINDINGS.md"):
+                blockers.append("Reconnaissance requires a current-invocation FINDINGS.md update.")
             if not re.search(r"(?m)^## A-\d{4,}\b", change_text):
                 blockers.append("Reconnaissance requires at least one reproducible attempt in CHANGELOG.md.")
-            blockers.append("Reconnaissance requires a reproducible HANDOFF.md checkpoint.")
-        elif phase == "solving":
-            if solved is True:
+            elif not self._changed_in_invocation("CHANGELOG.md"):
+                blockers.append("Reconnaissance requires a current-invocation CHANGELOG.md update.")
+            if phase == "reconnaissance" or not self._changed_in_invocation("HANDOFF.md"):
+                blockers.append("Reconnaissance requires a current reproducible HANDOFF.md checkpoint.")
+            if phase != "reconnaissance":
+                source_sequence = max(
+                    self._document_sequence(name) for name in ("CHALLENGE.md", "FINDINGS.md", "CHANGELOG.md")
+                )
+                if self._document_sequence("HANDOFF.md") < source_sequence:
+                    blockers.append("HANDOFF.md is stale relative to challenge knowledge; append a current checkpoint.")
+        elif invocation_started_phase == "solving":
+            if phase == "completed":
+                if not self._changed_in_invocation("WRITEUP.md"):
+                    blockers.append("A solved turn requires a current-invocation WRITEUP.md update.")
+                source_sequence = max(
+                    self._document_sequence(name)
+                    for name in ("CHALLENGE.md", "FINDINGS.md", "CHANGELOG.md", "HANDOFF.md")
+                )
+                if self._document_sequence("WRITEUP.md") < source_sequence:
+                    blockers.append("WRITEUP.md is stale relative to lifecycle evidence; append verification or a revision.")
+            elif solved is True:
                 blockers.append("A solved turn requires WRITEUP.md.")
-            handoff = self.path("HANDOFF.md").read_text(encoding="utf-8")
-            required = ("### Evidence", "### Failures", "### Artifacts", "### Exact next actions")
-            for heading in required:
-                if heading not in handoff:
-                    blockers.append(f"Unsolved checkpoint is missing `{heading}` in HANDOFF.md.")
-            newest_input = max(
-                self.path(name).stat().st_mtime_ns
-                for name in ("CHALLENGE.md", "FINDINGS.md", "CHANGELOG.md")
-                if self.path(name).exists()
-            )
-            if self.path("HANDOFF.md").stat().st_mtime_ns < newest_input:
-                blockers.append("HANDOFF.md is stale relative to challenge knowledge; append a current checkpoint.")
-        elif phase == "completed":
+            else:
+                handoff = self.path("HANDOFF.md").read_text(encoding="utf-8")
+                required = ("### Evidence", "### Failures", "### Artifacts", "### Exact next actions")
+                for heading in required:
+                    if heading not in handoff:
+                        blockers.append(f"Unsolved checkpoint is missing `{heading}` in HANDOFF.md.")
+                if not self._changed_in_invocation("HANDOFF.md"):
+                    blockers.append("An unsolved turn requires a current-invocation HANDOFF.md checkpoint.")
+                source_sequence = max(
+                    self._document_sequence(name) for name in ("CHALLENGE.md", "FINDINGS.md", "CHANGELOG.md")
+                )
+                if self._document_sequence("HANDOFF.md") < source_sequence:
+                    blockers.append("HANDOFF.md is stale relative to challenge knowledge; append a current checkpoint.")
+        elif invocation_started_phase == "completed":
             writeup = self.path("WRITEUP.md").read_text(encoding="utf-8")
             if "### Reproduce" not in writeup or "### Evidence" not in writeup:
                 blockers.append("WRITEUP.md must contain reproduction and evidence sections.")
-            newest_input = max(
-                self.path(name).stat().st_mtime_ns
+            if not self._changed_in_invocation("WRITEUP.md"):
+                blockers.append("Completed verification requires a current-invocation WRITEUP.md revision.")
+            source_sequence = max(
+                self._document_sequence(name)
                 for name in ("CHALLENGE.md", "FINDINGS.md", "CHANGELOG.md", "HANDOFF.md")
-                if self.path(name).exists()
             )
-            if self.path("WRITEUP.md").stat().st_mtime_ns < newest_input:
+            if self._document_sequence("WRITEUP.md") < source_sequence:
                 blockers.append("WRITEUP.md is stale relative to lifecycle evidence; append verification or a revision.")
         if self.enforcement == "warn" and blockers:
             warnings.extend(blockers)

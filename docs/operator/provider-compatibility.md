@@ -7,7 +7,9 @@
 | Claude Code | `claude` | Native permissions; explicit bypass | stream JSON | `--resume` | Claude Agent Skills |
 | Antigravity | `agy` | Native permissions; explicit bypass | stream JSON | `--conversation` | `.agents/skills` |
 
-The release compatibility source is `integrations/manifest.json`. Runtimes publish detected versions during registration. Version mismatch and missing commands are reported; Constellation never changes providers silently.
+The release compatibility source is `integrations/manifest.json`. Install and repair preflight reject a parseable version below its declared minimum before managed files change. Unknown or non-SemVer vendor output is permitted with a prominent warning. `opencrow doctor` reports the detected and required versions.
+
+Runtimes publish command availability, detected version, required minimum, and `compatible`, `incompatible`, or `unknown` status during registration. Constellation rejects incompatible providers during scheduling and execution, permits an available provider whose version is unknown with a warning, and never changes providers silently.
 
 ## Platform release matrix
 

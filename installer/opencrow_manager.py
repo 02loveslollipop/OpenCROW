@@ -111,6 +111,40 @@ def command_version(command: str) -> str | None:
     return "installed (version unavailable)"
 
 
+def parse_semver(value: str | None) -> tuple[int, int, int, str | None] | None:
+    """Extract a conservative SemVer value from vendor CLI output."""
+
+    if not value:
+        return None
+    match = re.search(r"(?<!\d)v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?", value)
+    if not match:
+        return None
+    return int(match[1]), int(match[2]), int(match[3]), match[4]
+
+
+def version_is_supported(detected: str, minimum: str) -> bool | None:
+    actual = parse_semver(detected)
+    required = parse_semver(minimum)
+    if actual is None or required is None:
+        return None
+    if actual[:3] != required[:3]:
+        return actual[:3] > required[:3]
+    if actual[3] and not required[3]:
+        return False
+    return True
+
+
+def load_integration_manifest(root: Path) -> dict[str, Any]:
+    path = root / "integrations" / "manifest.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise InstallError(f"Cannot read provider compatibility manifest {path}: {exc}") from exc
+    if not isinstance(value, dict) or value.get("schema_version") != 2:
+        raise InstallError(f"Invalid provider compatibility manifest: {path}")
+    return value
+
+
 def deep_merge(existing: Any, incoming: Any) -> Any:
     if isinstance(existing, dict) and isinstance(incoming, dict):
         result = dict(existing)
@@ -162,6 +196,10 @@ def merge_package_history(previous: dict[str, Any], incoming: dict[str, Any]) ->
             new_unresolved = values.get("unresolved", []) if isinstance(values.get("unresolved"), list) else []
             resolved = set(merged.get("resolved", [])) | set(merged.get("installed", []))
             merged["unresolved"] = [item for item in dict.fromkeys(new_unresolved) if item not in resolved]
+        if section == "agent_clis":
+            old_receipts = existing.get("receipts", {}) if isinstance(existing.get("receipts"), dict) else {}
+            new_receipts = values.get("receipts", {}) if isinstance(values.get("receipts"), dict) else {}
+            merged["receipts"] = {**old_receipts, **new_receipts}
         if section == "miniconda":
             merged["installed"] = bool(existing.get("installed")) or bool(values.get("installed"))
         result[section] = merged
@@ -222,6 +260,49 @@ class StateEngine:
                 "Legacy OpenCROW install state is not migrated by v2; remove the prior installation state before installing."
             )
         return value
+
+    def provider_compatibility(self, agents: Iterable[str], *, root: Path | None = None) -> dict[str, Any]:
+        manifest_root = root or self.paths.current
+        providers = load_integration_manifest(manifest_root).get("providers", {})
+        result: dict[str, Any] = {}
+        for provider in agents:
+            specification = providers.get(provider, {}) if isinstance(providers, dict) else {}
+            minimum = str(specification.get("minimum_version") or "")
+            version = command_version(COMMANDS[provider])
+            supported = version_is_supported(version or "", minimum)
+            if supported is True:
+                compatibility = "compatible"
+                warning = None
+            elif supported is False:
+                compatibility = "incompatible"
+                warning = (
+                    f"{provider} {version} is below the required minimum {minimum}; "
+                    "update the provider CLI before installing or scheduling it."
+                )
+            else:
+                compatibility = "unknown"
+                warning = (
+                    f"Could not verify {provider} against required minimum {minimum}: "
+                    f"{version or 'command unavailable'}."
+                )
+            result[provider] = {
+                "available": version is not None,
+                "version": version,
+                "minimum_version": minimum,
+                "compatibility": compatibility,
+                "warning": warning,
+            }
+        return result
+
+    @staticmethod
+    def _reject_incompatible(compatibility: dict[str, Any]) -> None:
+        failures = [
+            str(value.get("warning"))
+            for value in compatibility.values()
+            if isinstance(value, dict) and value.get("compatibility") == "incompatible"
+        ]
+        if failures:
+            raise InstallError("Provider compatibility preflight failed before mutation: " + "; ".join(failures))
 
     def _write_state(self, value: dict[str, Any], *, previous: dict[str, Any] | None = None) -> None:
         self.paths.state.mkdir(parents=True, exist_ok=True)
@@ -528,12 +609,15 @@ class StateEngine:
         atomic_text(destination, json.dumps(deep_merge(existing, fragment), indent=2, sort_keys=True) + "\n")
         return [str(destination)]
 
-    def _install_integrations(self, agents: list[str], backups: list[dict[str, Any]]) -> tuple[list[str], dict[str, Any]]:
+    def _install_integrations(
+        self,
+        agents: list[str],
+        backups: list[dict[str, Any]],
+        compatibility: dict[str, Any] | None = None,
+    ) -> tuple[list[str], dict[str, Any]]:
         managed: list[str] = []
-        compatibility: dict[str, Any] = {}
+        compatibility = compatibility or self.provider_compatibility(agents)
         for provider in agents:
-            version = command_version(COMMANDS[provider])
-            compatibility[provider] = {"available": version is not None, "version": version}
             if provider == "codex":
                 managed.extend(self._merge_codex(backups))
             else:
@@ -613,6 +697,8 @@ class StateEngine:
             previous_state.get("package_methods", {}) if isinstance(previous_state.get("package_methods"), dict) else {},
             package_methods or {},
         )
+        compatibility = self.provider_compatibility(agents, root=source.resolve())
+        self._reject_incompatible(compatibility)
         stage = self._stage(source.resolve(), mode)
         try:
             self._validate_stage(stage, agents)
@@ -626,7 +712,7 @@ class StateEngine:
         for provider in set(previous_state.get("selected_agents", [])) - set(agents):
             self._remove_integration_config(str(provider), backups)
         managed_paths.extend(self._install_skills(agents, backups))
-        integration_paths, compatibility = self._install_integrations(agents, backups)
+        integration_paths, compatibility = self._install_integrations(agents, backups, compatibility)
         managed_paths.extend(integration_paths)
         managed_paths.extend(self._configure_shells(backups))
         self._verify_installed_integrations(agents)
@@ -805,9 +891,12 @@ class StateEngine:
     def integration_status(self) -> list[dict[str, Any]]:
         state = self.state()
         selected = set(state.get("selected_agents", []))
+        root = self.paths.current if self.paths.current.is_dir() else source_root()
+        compatibility = self.provider_compatibility(PROVIDERS, root=root)
         result: list[dict[str, Any]] = []
         for provider in PROVIDERS:
-            version = command_version(COMMANDS[provider])
+            provider_compatibility = compatibility[provider]
+            version = provider_compatibility["version"]
             skill_dir = self.paths.home / SKILLS_DIRS[provider]
             lifecycle_skills = list(skill_dir.glob("*/SKILL.md")) if skill_dir.exists() else []
             result.append(
@@ -816,8 +905,15 @@ class StateEngine:
                     "selected": provider in selected,
                     "available": version is not None,
                     "version": version,
+                    "minimum_version": provider_compatibility["minimum_version"],
+                    "compatibility": provider_compatibility["compatibility"],
+                    "warning": provider_compatibility["warning"],
                     "skill_count": len(lifecycle_skills),
-                    "healthy": provider not in selected or (version is not None and bool(lifecycle_skills)),
+                    "healthy": provider not in selected or (
+                        version is not None
+                        and provider_compatibility["compatibility"] != "incompatible"
+                        and bool(lifecycle_skills)
+                    ),
                 }
             )
         return result
@@ -828,13 +924,15 @@ class StateEngine:
             raise InstallError("OpenCROW is not installed.")
         backups: list[dict[str, Any]] = []
         agents = list(state.get("selected_agents", []))
+        compatibility = self.provider_compatibility(agents)
+        self._reject_incompatible(compatibility)
         managed = self._install_launchers(
             str(state.get("install_mode", "skills")),
             list(state.get("selected_toolboxes", [])),
         )
         self._remove_stale_launchers(state.get("managed_paths", []), managed)
         managed.extend(self._install_skills(agents, backups))
-        integration, compatibility = self._install_integrations(agents, backups)
+        integration, compatibility = self._install_integrations(agents, backups, compatibility)
         state["managed_paths"] = sorted(set(state.get("managed_paths", [])) | set(managed) | set(integration))
         state["provider_compatibility"] = compatibility
         state["config_backups"] = list(state.get("config_backups", [])) + backups
@@ -845,6 +943,7 @@ class StateEngine:
     def doctor(self) -> dict[str, Any]:
         state = self.state()
         issues: list[str] = []
+        warnings: list[str] = []
         if not state:
             issues.append("OpenCROW desired-state manifest is missing.")
         if state and not self.paths.current.is_dir():
@@ -857,7 +956,12 @@ class StateEngine:
         integrations = self.integration_status()
         for item in integrations:
             if item["selected"] and not item["healthy"]:
-                issues.append(f"Integration is unhealthy: {item['provider']}")
+                if item["compatibility"] == "incompatible":
+                    issues.append(str(item["warning"]))
+                else:
+                    issues.append(f"Integration is unhealthy: {item['provider']}")
+            if item["selected"] and item["compatibility"] == "unknown" and item["warning"]:
+                warnings.append(str(item["warning"]))
         python_candidates = [
             os.environ.get("OPENCROW_PYTHON"),
             str(self.paths.data / "envs/ctf/bin/python"),
@@ -885,6 +989,7 @@ class StateEngine:
             "python": python,
             "integrations": integrations,
             "issues": issues,
+            "warnings": warnings,
         }
 
     def _remove_integration_config(self, provider: str, backups: list[dict[str, Any]] | None = None) -> None:
@@ -1004,8 +1109,42 @@ class StateEngine:
         }
         for provider in providers:
             command = commands.get(provider)
+            if command is None and provider in {"claude", "antigravity"}:
+                receipts = cli_state.get("receipts", {}) if isinstance(cli_state.get("receipts"), dict) else {}
+                receipt = receipts.get(provider, {}) if isinstance(receipts.get(provider), dict) else {}
+                owned = receipt.get("owned_paths", []) if isinstance(receipt.get("owned_paths"), list) else []
+                if not owned:
+                    unresolved.append(f"{provider}: no OpenCROW ownership receipt is available; user data was preserved")
+                    continue
+                failures: list[str] = []
+                deleted = 0
+                for item in owned:
+                    path_value = item.get("path") if isinstance(item, dict) else None
+                    if not isinstance(path_value, str):
+                        failures.append("receipt contains an invalid path")
+                        continue
+                    path = Path(path_value)
+                    if path == self.paths.home or self.paths.home not in path.parents:
+                        failures.append(f"unsafe receipt path was preserved: {path}")
+                        continue
+                    if provider == "claude" and path == self.paths.home / ".claude":
+                        failures.append(f"configuration path was preserved: {path}")
+                        continue
+                    if path.is_dir() and not path.is_symlink():
+                        shutil.rmtree(path)
+                        deleted += 1
+                    elif path.exists() or path.is_symlink():
+                        path.unlink()
+                        deleted += 1
+                if failures:
+                    unresolved.extend(f"{provider}: {failure}" for failure in failures)
+                elif deleted:
+                    removed.append(provider)
+                else:
+                    unresolved.append(f"{provider}: receipt-owned paths were already absent")
+                continue
             if command is None:
-                unresolved.append(f"{provider}: use the vendor-owned uninstall procedure; no stable non-interactive command is advertised")
+                unresolved.append(f"{provider}: no safe uninstall strategy is recorded")
                 continue
             if shutil.which(command[0]) is None:
                 unresolved.append(f"{provider}: purge command is unavailable: {command[0]}")
@@ -1053,7 +1192,8 @@ class StateEngine:
         if purge_agent_clis:
             removed.extend(f"agent-cli:{name}" for name in purged_clis)
             retained.extend(cli_unresolved)
-        return {"ok": True, "removed": removed, "retained": retained}
+        unresolved = [*system_unresolved, *cli_unresolved]
+        return {"ok": not unresolved, "removed": removed, "retained": retained, "unresolved": unresolved}
 
 
 def shlex_quote(value: str) -> str:

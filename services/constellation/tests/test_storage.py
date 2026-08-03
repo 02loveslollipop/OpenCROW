@@ -52,6 +52,31 @@ def test_runtime_provider_mismatch_never_falls_back():
         storage._choose_runtime("codex-only", "claude")
 
 
+def test_runtime_with_incompatible_provider_is_not_schedulable():
+    storage = ConstellationStorage.__new__(ConstellationStorage)
+    storage.runtimes = MagicMock()
+    storage.runtimes.find_one.return_value = {
+        "runtime_id": "old-codex",
+        "capabilities": {
+            "providers": {
+                "codex": {"available": True, "compatibility": "incompatible", "version": "0.115.0"}
+            }
+        },
+    }
+    with pytest.raises(RuntimeError, match="does not support provider codex"):
+        storage._choose_runtime("old-codex", "codex")
+
+
+def test_runtime_with_unknown_provider_version_remains_schedulable():
+    storage = ConstellationStorage.__new__(ConstellationStorage)
+    storage.runtimes = MagicMock()
+    storage.runtimes.find_one.return_value = {
+        "runtime_id": "development-provider",
+        "capabilities": {"providers": {"claude": {"available": True, "compatibility": "unknown"}}},
+    }
+    assert storage._choose_runtime("development-provider", "claude") == "development-provider"
+
+
 def test_recon_handoff_queues_exactly_one_solve_continuation():
     storage = ConstellationStorage.__new__(ConstellationStorage)
     storage.agents = MagicMock()

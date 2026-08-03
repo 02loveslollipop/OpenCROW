@@ -10,6 +10,7 @@ import re
 import shlex
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -26,6 +27,7 @@ SECRET_PATTERNS = (
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
     re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
 )
+FENCED_CODE = re.compile(r"^```([A-Za-z0-9_-]+)\s*$\n(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
 
 
 def anchor(value: str) -> str:
@@ -66,8 +68,38 @@ def validate_manifest(manifest: dict[str, Any], errors: list[str]) -> None:
         errors.append(f"Wiki redirect conflicts with a page slug: {name}")
 
 
-def validate_links(paths: list[Path], errors: list[str], external: bool) -> None:
+def _external_link_status(target: str) -> str | None:
+    headers = {"User-Agent": "OpenCROW-doc-validator/2"}
+    last_error: BaseException | None = None
+    for attempt in range(3):
+        for method in ("HEAD", "GET"):
+            try:
+                request = urllib.request.Request(target, method=method, headers=headers)
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    if response.status < 400:
+                        return None
+                    last_error = RuntimeError(f"HTTP {response.status}")
+            except urllib.error.HTTPError as exc:
+                last_error = exc
+                if method == "HEAD" and exc.code in {403, 405, 501}:
+                    continue
+                break
+            except (urllib.error.URLError, TimeoutError) as exc:
+                last_error = exc
+                break
+        if attempt < 2:
+            time.sleep(0.5 * (attempt + 1))
+    return str(last_error or "unknown error")
+
+
+def validate_links(
+    paths: list[Path],
+    errors: list[str],
+    external: bool,
+    external_cache: dict[str, Any] | None = None,
+) -> None:
     checked_urls: set[str] = set()
+    external_cache = external_cache if external_cache is not None else {}
     for path in paths:
         text = path.read_text(encoding="utf-8")
         for _label, target in MARKDOWN_LINK.findall(text):
@@ -80,13 +112,14 @@ def validate_links(paths: list[Path], errors: list[str], external: bool) -> None
                     errors.append(f"External documentation link must use HTTPS: {target}")
                 if external and target not in checked_urls:
                     checked_urls.add(target)
-                    try:
-                        request = urllib.request.Request(target, method="HEAD", headers={"User-Agent": "OpenCROW-doc-validator/2"})
-                        with urllib.request.urlopen(request, timeout=15) as response:
-                            if response.status >= 400:
-                                errors.append(f"External link returned {response.status}: {target}")
-                    except (urllib.error.URLError, TimeoutError) as exc:
-                        errors.append(f"External link failed: {target}: {exc}")
+                    cached = external_cache.get(target, {})
+                    checked_at = float(cached.get("checked_at", 0)) if isinstance(cached, dict) else 0
+                    if time.time() - checked_at < 86_400 and cached.get("ok") is True:
+                        continue
+                    failure = _external_link_status(target)
+                    external_cache[target] = {"ok": failure is None, "checked_at": time.time(), "error": failure}
+                    if failure:
+                        errors.append(f"External link failed after retries: {target}: {failure}")
                 continue
             raw, separator, fragment = target.partition("#")
             destination = (path.parent / raw).resolve() if raw else path
@@ -165,6 +198,31 @@ def validate_installer_examples(paths: list[Path], errors: list[str]) -> None:
                 break
 
 
+def validate_code_examples(paths: list[Path], errors: list[str]) -> None:
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for language, body in FENCED_CODE.findall(text):
+            language = language.lower()
+            if language in {"bash", "sh", "shell"}:
+                result = subprocess.run(
+                    ["bash", "-n"], input=body, text=True, capture_output=True, check=False
+                )
+                if result.returncode:
+                    errors.append(
+                        f"Invalid shell example in {path.relative_to(ROOT)}: {result.stderr.strip()}"
+                    )
+            elif language == "json":
+                try:
+                    json.loads(body)
+                except json.JSONDecodeError as exc:
+                    errors.append(f"Invalid JSON example in {path.relative_to(ROOT)}: {exc}")
+            elif language in {"python", "py"}:
+                try:
+                    compile(body, f"{path}:documentation-example", "exec")
+                except SyntaxError as exc:
+                    errors.append(f"Invalid Python example in {path.relative_to(ROOT)}: {exc}")
+
+
 def validate_compatibility(errors: list[str]) -> None:
     release = json.loads((ROOT / "installer/manifests/release.json").read_text(encoding="utf-8"))
     integrations = json.loads((ROOT / "integrations/manifest.json").read_text(encoding="utf-8"))
@@ -182,15 +240,26 @@ def validate_compatibility(errors: list[str]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-external", action="store_true")
+    parser.add_argument("--external-cache", type=Path, default=ROOT / ".cache/docs-external-links.json")
     args = parser.parse_args()
     errors: list[str] = []
     manifest = load_manifest(ROOT / "docs/wiki-manifest.json")
     validate_manifest(manifest, errors)
     paths = sorted(path for path in ROOT.rglob("*.md") if not any(part in {".git", "dist"} for part in path.parts))
-    validate_links(paths, errors, args.check_external)
+    external_cache: dict[str, Any] = {}
+    if args.check_external and args.external_cache.is_file():
+        try:
+            external_cache = json.loads(args.external_cache.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            external_cache = {}
+    validate_links(paths, errors, args.check_external, external_cache)
+    if args.check_external:
+        args.external_cache.parent.mkdir(parents=True, exist_ok=True)
+        args.external_cache.write_text(json.dumps(external_cache, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     validate_secrets(paths, errors)
     validate_cli_help(errors)
     validate_installer_examples(paths, errors)
+    validate_code_examples(paths, errors)
     validate_compatibility(errors)
     with tempfile.TemporaryDirectory(prefix="opencrow-wiki-") as directory:
         output = Path(directory)

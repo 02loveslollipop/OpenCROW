@@ -6,4 +6,4 @@
 
 ## Clarifications
 
-_No clarifications have been recorded._
+_Clarifications are appended below; this marker is intentionally retained._

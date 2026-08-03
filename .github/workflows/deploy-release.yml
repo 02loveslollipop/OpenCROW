@@ -54,6 +54,9 @@ jobs:
           make smoke
           python scripts/validate_docs.py --check-external
 
+      - name: Exercise actual full and skills-only installs across supported distro families
+        run: bash scripts/test_distro_matrix.sh
+
       - name: Fetch and verify portable CPython inputs
         shell: bash
         run: |
@@ -93,14 +96,11 @@ jobs:
         run: |
           set -euo pipefail
           : "${WIKI_DEPLOY_TOKEN:?WIKI_DEPLOY_TOKEN is required}"
-          git clone "https://x-access-token:${WIKI_DEPLOY_TOKEN}@github.com/02loveslollipop/OpenCROW.wiki.git" /tmp/opencrow-wiki
-          find /tmp/opencrow-wiki -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
-          cp -a dist/wiki/. /tmp/opencrow-wiki/
-          git -C /tmp/opencrow-wiki config user.name opencrow-release-bot
-          git -C /tmp/opencrow-wiki config user.email opencrow-release-bot@users.noreply.github.com
-          git -C /tmp/opencrow-wiki add --all
-          git -C /tmp/opencrow-wiki commit --allow-empty -m "OpenCROW $GITHUB_REF_NAME ($GITHUB_SHA)"
-          git -C /tmp/opencrow-wiki push origin HEAD:master
+          python scripts/publish_wiki.py \
+            --generated dist/wiki \
+            --repository "https://x-access-token:${WIKI_DEPLOY_TOKEN}@github.com/02loveslollipop/OpenCROW.wiki.git" \
+            --version "$GITHUB_REF_NAME" \
+            --source-sha "$GITHUB_SHA"
 
       - name: Publish GitHub Release
         run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

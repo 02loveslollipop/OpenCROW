@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements-constellation.txt
 
 COPY services/constellation/constellation /app/services/constellation/constellation
 COPY packages/lifecycle/prompt.md /app/packages/lifecycle/prompt.md
+COPY integrations/manifest.json /app/integrations/manifest.json
 
 EXPOSE 8788
 CMD ["python", "-m", "constellation.ui"]

@@ -4,17 +4,29 @@ import hashlib
 import http.server
 import json
 import os
+import fcntl
+import pty
+import select
 import shutil
 import subprocess
 import sys
 import tarfile
+import termios
 import threading
 import zipfile
 from pathlib import Path
 
 import pytest
 
-from opencrow_manager import InstallError, Paths, StateEngine, deep_merge, remove_opencrow_hooks
+from opencrow_manager import (
+    InstallError,
+    Paths,
+    StateEngine,
+    deep_merge,
+    parse_semver,
+    remove_opencrow_hooks,
+    version_is_supported,
+)
 
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -188,6 +200,128 @@ def test_external_package_purge_ledger_survives_deselection(tmp_path: Path) -> N
     assert state["package_methods"]["os_packages"]["installed_by_opencrow"] == ["hashcat", "jq"]
 
 
+@pytest.mark.parametrize(
+    ("provider", "relative"),
+    [
+        ("claude", ".local/share/claude"),
+        ("antigravity", ".local/bin/agy"),
+    ],
+)
+def test_receipt_owned_vendor_cli_paths_are_purgeable(
+    tmp_path: Path, provider: str, relative: str
+) -> None:
+    paths = paths_for(tmp_path)
+    target = paths.home / relative
+    if target.suffix or target.name == "agy":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("provider binary")
+    else:
+        target.mkdir(parents=True)
+        (target / "version").write_text("installed")
+    state = {
+        "package_methods": {
+            "agent_clis": {
+                "installed": [provider],
+                "receipts": {provider: {"owned_paths": [{"path": str(target)}]}},
+            }
+        }
+    }
+    removed, unresolved = StateEngine(paths)._purge_agent_clis(state)
+    assert removed == [provider]
+    assert unresolved == []
+    assert not target.exists()
+
+
+def test_vendor_cli_purge_without_receipt_is_unresolved(tmp_path: Path) -> None:
+    paths = paths_for(tmp_path)
+    state = {"package_methods": {"agent_clis": {"installed": ["claude"]}}}
+    removed, unresolved = StateEngine(paths)._purge_agent_clis(state)
+    assert removed == []
+    assert "ownership receipt" in unresolved[0]
+
+
+def test_agent_cli_receipts_survive_desired_state_merge() -> None:
+    from opencrow_manager import merge_package_history
+
+    previous = {
+        "agent_clis": {
+            "installed": ["claude"],
+            "receipts": {"claude": {"owned_paths": [{"path": "/safe/claude"}]}},
+        }
+    }
+    incoming = {
+        "agent_clis": {
+            "installed": ["antigravity"],
+            "receipts": {"antigravity": {"owned_paths": [{"path": "/safe/agy"}]}},
+        }
+    }
+    merged = merge_package_history(previous, incoming)
+    assert merged["agent_clis"]["installed"] == ["claude", "antigravity"]
+    assert set(merged["agent_clis"]["receipts"]) == {"claude", "antigravity"}
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="installer supports Linux PTYs")
+def test_interactive_back_returns_to_immediately_previous_screen(tmp_path: Path) -> None:
+    master, slave = pty.openpty()
+
+    def controlling_terminal() -> None:
+        os.setsid()
+        fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
+    environment = {**os.environ, "PATH": "/usr/bin:/bin", "TERM": "xterm"}
+    process = subprocess.Popen(
+        ["/bin/bash", str(REPOSITORY / "installer/install.sh"), "--dry-run"],
+        cwd=REPOSITORY,
+        env=environment,
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        preexec_fn=controlling_terminal,
+        close_fds=True,
+    )
+    os.close(slave)
+    output = bytearray()
+
+    def read_until(marker: bytes, timeout: float = 8.0) -> None:
+        import time
+
+        deadline = time.monotonic() + timeout
+        while marker not in output and time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    output.extend(os.read(master, 65536))
+                except OSError:
+                    break
+        assert marker in output, output.decode(errors="replace")
+
+    try:
+        read_until(b"1/6 Agent integrations")
+        os.write(master, b" \r")  # select Codex, then confirm
+        read_until(b"2/6 Optionally install selected missing agent CLIs")
+        os.write(master, b"\r")  # leave optional CLI install unchecked
+        read_until(b"3/6 Miniconda")
+        agent_screen_count = output.count(b"1/6 Agent integrations")
+        os.write(master, b"b")
+        first = output.count(b"2/6 Optionally install selected missing agent CLIs")
+        import time
+
+        deadline = time.monotonic() + 5
+        while output.count(b"2/6 Optionally install selected missing agent CLIs") == first and time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                output.extend(os.read(master, 65536))
+        assert output.count(b"2/6 Optionally install selected missing agent CLIs") >= 2
+        assert output.count(b"1/6 Agent integrations") == agent_screen_count
+        os.write(master, b"q")
+        assert process.wait(timeout=5) == 1
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        os.close(master)
+
+
 def test_list_merge_is_additive_only_for_hook_groups() -> None:
     assert deep_merge(["old"], ["new"]) == ["new"]
     old = [{"hooks": [{"command": "mine"}]}]
@@ -289,6 +423,46 @@ def _fake_provider(path: Path, name: str = "codex") -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(f"#!/bin/sh\necho '{name} 99.0.0'\n")
     target.chmod(0o755)
+
+
+@pytest.mark.parametrize(
+    ("detected", "minimum", "expected"),
+    [
+        ("codex 0.115.9", "0.116.0", False),
+        ("codex 0.116.0", "0.116.0", True),
+        ("codex 0.117.0", "0.116.0", True),
+        ("codex 0.116.0-rc.1", "0.116.0", False),
+        ("installed (version unavailable)", "0.116.0", None),
+    ],
+)
+def test_provider_semver_policy(detected: str, minimum: str, expected: bool | None) -> None:
+    assert version_is_supported(detected, minimum) is expected
+    if expected is not None:
+        assert parse_semver(detected) is not None
+
+
+def test_known_incompatible_provider_is_rejected_before_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = paths_for(tmp_path)
+    engine = StateEngine(paths)
+    monkeypatch.setattr("opencrow_manager.command_version", lambda _command: "codex 0.115.0")
+    with pytest.raises(InstallError, match="before mutation"):
+        engine.install(source=REPOSITORY, mode="skills", agents=["codex"])
+    assert not paths.current.exists()
+    assert not paths.manifest.exists()
+
+
+def test_unknown_provider_version_installs_with_prominent_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = paths_for(tmp_path)
+    engine = StateEngine(paths)
+    monkeypatch.setattr("opencrow_manager.command_version", lambda _command: "development build")
+    state = engine.install(source=REPOSITORY, mode="skills", agents=["codex"])
+    compatibility = state["provider_compatibility"]["codex"]
+    assert compatibility["compatibility"] == "unknown"
+    assert compatibility["warning"]
 
 
 def test_skills_shell_uses_rootless_system_venv_without_conda(tmp_path: Path) -> None:

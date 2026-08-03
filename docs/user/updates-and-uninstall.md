@@ -25,3 +25,5 @@ opencrow uninstall --purge-env --purge-system --purge-agent-clis
 ```
 
 Backups remain available for manual recovery unless intentionally removed.
+
+When OpenCROW optionally installs a vendor CLI, it records the install method and bounded user-owned paths in the desired-state manifest. Claude Code and Antigravity purges remove only paths proven to have been created by that installation; provider configuration and history are preserved. If a receipt or safe vendor command is unavailable, uninstall lists the unresolved dependency, returns a failure status, and leaves it untouched.

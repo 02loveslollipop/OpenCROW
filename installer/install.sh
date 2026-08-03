@@ -7,20 +7,6 @@ SOURCE_ROOT=$(CDPATH= cd -- "$INSTALLER_DIR/.." && pwd)
 source "$INSTALLER_DIR/lib/selector.sh"
 ORIGINAL_ARGS=("$@")
 
-select_or_control() {
-  local status
-  if select_many "$@"; then
-    return 0
-  else
-    status=$?
-  fi
-  if ((status == 2)); then
-    printf 'Back selected; returning to the first installer screen.\n' >&2
-    exec bash "$0" "${ORIGINAL_ARGS[@]}"
-  fi
-  exit "$status"
-}
-
 DRY_RUN=0
 ASSUME_YES=0
 AGENTS_ARG=
@@ -113,44 +99,10 @@ done
 defaults=$(join_by_comma "${detected[@]}")
 if [[ -n "$AGENTS_ARG" ]]; then
   IFS=',' read -r -a selected_agents <<< "$AGENTS_ARG"
-elif ((ASSUME_YES)); then
-  selected_agents=("${detected[@]}")
 else
-  select_or_control "1/6 Agent integrations (missing CLIs are visible but unchecked)" "$defaults" "${providers[@]}"
-  selected_agents=("${SELECTED_VALUES[@]}")
+  selected_agents=("${detected[@]}")
 fi
-if ((${#selected_agents[@]} == 0)); then
-  printf 'install.sh: select at least one agent integration.\n' >&2
-  exit 2
-fi
-
-missing=()
-for provider in "${selected_agents[@]}"; do
-  case "$provider" in
-    codex) required=codex ;;
-    opencode) required=opencode ;;
-    claude) required=claude ;;
-    antigravity) required=agy ;;
-    *) printf 'Unknown provider: %s\n' "$provider" >&2; exit 2 ;;
-  esac
-  command -v "$required" >/dev/null 2>&1 || missing+=("$provider")
-done
 install_missing=()
-if ((${#missing[@]})); then
-  if ((INSTALL_MISSING || ASSUME_YES)); then
-    install_missing=("${missing[@]}")
-  else
-    missing_defaults=
-    select_or_control "2/6 Optionally install selected missing agent CLIs" "$missing_defaults" "${missing[@]}"
-    install_missing=("${SELECTED_VALUES[@]}")
-  fi
-  for provider in "${missing[@]}"; do
-    if ! _selector_contains "$provider" "${install_missing[@]}"; then
-      printf 'install.sh: %s is selected but missing and was not approved for installation.\n' "$provider" >&2
-      exit 2
-    fi
-  done
-fi
 
 conda_detected=0
 command -v conda >/dev/null 2>&1 && conda_detected=1
@@ -164,12 +116,7 @@ conda_selected=0
 if [[ "$INSTALL_CONDA" == yes ]]; then
   conda_selected=1
 elif [[ "$INSTALL_CONDA" == auto ]] && ((conda_detected == 0)); then
-  if ((ASSUME_YES)); then
-    conda_selected=1
-  else
-    select_or_control "3/6 Miniconda (recommended because Conda was not detected)" "Install Miniconda" "Install Miniconda"
-    _selector_contains "Install Miniconda" "${SELECTED_VALUES[@]}" && conda_selected=1
-  fi
+  conda_selected=1
 fi
 
 headless=(utility network reversing pwn web forensics stego crypto osint)
@@ -177,41 +124,176 @@ toolbox_options=("${headless[@]}" sagemath)
 headless_defaults=$(join_by_comma "${headless[@]}")
 if [[ -n "$TOOLBOXES_ARG" ]]; then
   IFS=',' read -r -a selected_toolboxes <<< "$TOOLBOXES_ARG"
-elif ((ASSUME_YES)); then
-  selected_toolboxes=("${headless[@]}")
 else
-  select_or_control "4/6 Toolbox bundles (headless bundles are preselected; SageMath is optional)" "$headless_defaults" "${toolbox_options[@]}"
-  selected_toolboxes=("${SELECTED_VALUES[@]}")
+  selected_toolboxes=("${headless[@]}")
 fi
 
 selected_tools=()
 if [[ -n "$TOOLS_ARG" ]]; then
   IFS=',' read -r -a selected_tools <<< "$TOOLS_ARG"
-elif ((ADVANCED || !ASSUME_YES)); then
-  manual=(burpsuite zaproxy autopsy openstego steghsolve ghidra-gui)
-  if ((ASSUME_YES)); then selected_tools=(); else
-    select_or_control "5/6 Advanced individual-tool overrides" "" "${manual[@]}"
-    selected_tools=("${SELECTED_VALUES[@]}")
-  fi
+fi
+manual=(burpsuite zaproxy autopsy openstego steghsolve ghidra-gui)
+
+refresh_missing() {
+  local selected required
+  missing=()
+  for selected in "${selected_agents[@]}"; do
+    case "$selected" in
+      codex) required=codex ;;
+      opencode) required=opencode ;;
+      claude) required=claude ;;
+      antigravity) required=agy ;;
+      *) printf 'Unknown provider: %s\n' "$selected" >&2; exit 2 ;;
+    esac
+    command -v "$required" >/dev/null 2>&1 || missing+=("$selected")
+  done
+}
+
+screen_enabled() {
+  case "$1" in
+    1) [[ -z "$AGENTS_ARG" ]] ;;
+    2) ((${#missing[@]} > 0 && INSTALL_MISSING == 0)) ;;
+    3) [[ "$INSTALL_CONDA" == auto ]] && ((conda_detected == 0)) ;;
+    4) [[ -z "$TOOLBOXES_ARG" ]] ;;
+    5) [[ -z "$TOOLS_ARG" ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+next_enabled_screen() {
+  local candidate=$(( $1 + 1 ))
+  while ((candidate <= 5)); do
+    if screen_enabled "$candidate"; then printf '%s' "$candidate"; return; fi
+    candidate=$((candidate + 1))
+  done
+  printf '6'
+}
+
+previous_enabled_screen() {
+  local candidate=$(( $1 - 1 ))
+  while ((candidate >= 1)); do
+    if screen_enabled "$candidate"; then printf '%s' "$candidate"; return; fi
+    candidate=$((candidate - 1))
+  done
+  printf '0'
+}
+
+run_selection_flow() {
+  local screen=$1 status defaults_for_screen prior
+  while ((screen <= 5)); do
+    refresh_missing
+    if ! screen_enabled "$screen"; then
+      screen=$(next_enabled_screen "$screen")
+      continue
+    fi
+    case "$screen" in
+      1)
+        defaults_for_screen=$(join_by_comma "${selected_agents[@]}")
+        if select_many "1/6 Agent integrations (missing CLIs are visible but unchecked)" "$defaults_for_screen" "${providers[@]}"; then
+          selected_agents=("${SELECTED_VALUES[@]}")
+          if ((${#selected_agents[@]} == 0)); then
+            printf 'Select at least one agent integration.\n' >&2
+            continue
+          fi
+          install_missing=()
+        else
+          status=$?
+          ((status == 1)) && exit 1
+          printf 'Already at the first applicable installer screen.\n' >&2
+          continue
+        fi
+        ;;
+      2)
+        defaults_for_screen=$(join_by_comma "${install_missing[@]}")
+        if select_many "2/6 Optionally install selected missing agent CLIs" "$defaults_for_screen" "${missing[@]}"; then
+          install_missing=("${SELECTED_VALUES[@]}")
+        else
+          status=$?
+          ((status == 1)) && exit 1
+          screen=$(previous_enabled_screen "$screen")
+          continue
+        fi
+        ;;
+      3)
+        defaults_for_screen=
+        ((conda_selected)) && defaults_for_screen="Install Miniconda"
+        if select_many "3/6 Miniconda (recommended because Conda was not detected)" "$defaults_for_screen" "Install Miniconda"; then
+          conda_selected=0
+          _selector_contains "Install Miniconda" "${SELECTED_VALUES[@]}" && conda_selected=1
+        else
+          status=$?
+          ((status == 1)) && exit 1
+          screen=$(previous_enabled_screen "$screen")
+          continue
+        fi
+        ;;
+      4)
+        defaults_for_screen=$(join_by_comma "${selected_toolboxes[@]}")
+        if select_many "4/6 Toolbox bundles (headless bundles are preselected; SageMath is optional)" "$defaults_for_screen" "${toolbox_options[@]}"; then
+          selected_toolboxes=("${SELECTED_VALUES[@]}")
+        else
+          status=$?
+          ((status == 1)) && exit 1
+          screen=$(previous_enabled_screen "$screen")
+          continue
+        fi
+        ;;
+      5)
+        defaults_for_screen=$(join_by_comma "${selected_tools[@]}")
+        if select_many "5/6 Advanced individual-tool overrides" "$defaults_for_screen" "${manual[@]}"; then
+          selected_tools=("${SELECTED_VALUES[@]}")
+        else
+          status=$?
+          ((status == 1)) && exit 1
+          screen=$(previous_enabled_screen "$screen")
+          continue
+        fi
+        ;;
+    esac
+    refresh_missing
+    screen=$(next_enabled_screen "$screen")
+  done
+}
+
+refresh_missing
+if ((INSTALL_MISSING || ASSUME_YES)); then install_missing=("${missing[@]}"); fi
+if ((!ASSUME_YES)); then
+  first_screen=$(next_enabled_screen 0)
+  ((first_screen <= 5)) && run_selection_flow "$first_screen"
+fi
+if ((${#selected_agents[@]} == 0)); then
+  printf 'install.sh: select at least one agent integration.\n' >&2
+  exit 2
 fi
 
-agents_csv=$(join_by_comma "${selected_agents[@]}")
-toolboxes_csv=$(join_by_comma "${selected_toolboxes[@]}")
-tools_csv=$(join_by_comma "${selected_tools[@]}")
-sagemath_extra=0
-_selector_contains sagemath "${selected_toolboxes[@]}" && sagemath_extra=6
-estimated_gb=$((2 + ${#selected_toolboxes[@]} * 1 + conda_selected * 2 + sagemath_extra))
-printf '\n6/6 Licenses, estimate, and command plan\n'
-printf '  Providers: %s\n  Missing CLI installs: %s\n  Miniconda: %s\n  Toolboxes: %s\n  Advanced tools: %s\n' \
-  "$agents_csv" "$(join_by_comma "${install_missing[@]}")" "$conda_selected" "$toolboxes_csv" "${tools_csv:-none}"
-printf '  Estimated disk ceiling: approximately %s GiB\n' "$estimated_gb"
-printf '  Package manager: %s (OS packages only)\n' "$PACKAGE_MANAGER"
-printf '  Licenses: OpenCROW Apache-2.0; third-party tools retain their own licenses.\n'
-printf '  Runtime trust: Constellation hosts execute provider agents in full-auto mode.\n'
-if ((!ASSUME_YES)); then
-  select_or_control "Final confirmation" "Install" "Install"
-  _selector_contains Install "${SELECTED_VALUES[@]}" || { printf 'Installation cancelled.\n'; exit 1; }
-fi
+while true; do
+  agents_csv=$(join_by_comma "${selected_agents[@]}")
+  toolboxes_csv=$(join_by_comma "${selected_toolboxes[@]}")
+  tools_csv=$(join_by_comma "${selected_tools[@]}")
+  sagemath_extra=0
+  _selector_contains sagemath "${selected_toolboxes[@]}" && sagemath_extra=6
+  estimated_gb=$((2 + ${#selected_toolboxes[@]} * 1 + conda_selected * 2 + sagemath_extra))
+  printf '\n6/6 Licenses, estimate, and command plan\n'
+  printf '  Providers: %s\n  Missing CLI installs: %s\n  Miniconda: %s\n  Toolboxes: %s\n  Advanced tools: %s\n' \
+    "$agents_csv" "$(join_by_comma "${install_missing[@]}")" "$conda_selected" "$toolboxes_csv" "${tools_csv:-none}"
+  printf '  Estimated disk ceiling: approximately %s GiB\n' "$estimated_gb"
+  printf '  Package manager: %s (OS packages only)\n' "$PACKAGE_MANAGER"
+  printf '  Licenses: OpenCROW Apache-2.0; third-party tools retain their own licenses.\n'
+  printf '  Runtime trust: Constellation hosts execute provider agents in full-auto mode.\n'
+  ((ASSUME_YES)) && break
+  if select_many "Final confirmation" "Install" "Install"; then
+    _selector_contains Install "${SELECTED_VALUES[@]}" || { printf 'Installation cancelled.\n'; exit 1; }
+    break
+  fi
+  status=$?
+  ((status == 1)) && exit 1
+  prior=$(previous_enabled_screen 6)
+  if ((prior == 0)); then
+    printf 'No earlier interactive screen is available.\n' >&2
+  else
+    run_selection_flow "$prior"
+  fi
+done
 
 if ((DRY_RUN)); then
   compatibility_report
@@ -321,9 +403,14 @@ if ((${#unresolved_packages[@]})); then
   printf 'OpenCROW unresolved external packages (installation continues): %s\n' "$(join_by_comma "${unresolved_packages[@]}")" >&2
 fi
 
+install_missing_csv=$(join_by_comma "${install_missing[@]}")
+cli_receipt_before=$(run_user python3 "$INSTALLER_DIR/lib/agent_cli_receipts.py" snapshot \
+  --home "$TARGET_HOME" --providers "$install_missing_csv")
 for provider in "${install_missing[@]}"; do
   run_user bash "$INSTALLER_DIR/lib/install_agent_cli.sh" "$provider"
 done
+cli_receipts=$(run_user python3 "$INSTALLER_DIR/lib/agent_cli_receipts.py" receipts \
+  --home "$TARGET_HOME" --providers "$install_missing_csv" --before "$cli_receipt_before")
 if ((conda_selected)); then
   run_user bash "$INSTALLER_DIR/lib/install_miniconda.sh" "$TARGET_HOME/.local/share/opencrow/miniconda"
 fi
@@ -358,14 +445,14 @@ if [[ -n "$environment_unresolved" ]]; then
   printf 'OpenCROW unresolved environment dependencies (installation continues): %s\n' "$environment_unresolved" >&2
 fi
 
-package_methods_json=$(python3 - "$PACKAGE_MANAGER" "$(join_by_comma "${resolved_packages[@]}")" "$(join_by_comma "${preexisting_packages[@]}")" "$(join_by_comma "${unresolved_packages[@]}")" "$(join_by_comma "${install_missing[@]}")" "$conda_selected" "$environment_methods_json" <<'PY'
+package_methods_json=$(python3 - "$PACKAGE_MANAGER" "$(join_by_comma "${resolved_packages[@]}")" "$(join_by_comma "${preexisting_packages[@]}")" "$(join_by_comma "${unresolved_packages[@]}")" "$install_missing_csv" "$conda_selected" "$environment_methods_json" "$cli_receipts" <<'PY'
 import json, sys
-manager, installed, preexisting, unresolved, agent_clis, miniconda, environments = sys.argv[1:]
+manager, installed, preexisting, unresolved, agent_clis, miniconda, environments, receipts = sys.argv[1:]
 split = lambda value: [item for item in value.split(",") if item]
 installed_values, preexisting_values = split(installed), set(split(preexisting))
 print(json.dumps({
     "os_packages": {"method": manager, "resolved": installed_values, "installed_by_opencrow": [item for item in installed_values if item not in preexisting_values], "preexisting": sorted(preexisting_values), "unresolved": split(unresolved)},
-    "agent_clis": {"method": "vendor-owned", "installed": split(agent_clis)},
+    "agent_clis": {"method": "vendor-owned", "installed": split(agent_clis), "receipts": json.loads(receipts)},
     "miniconda": {"method": "vendor-checksummed", "installed": miniconda == "1"},
     "python_environments": json.loads(environments),
 }, separators=(",", ":")))
