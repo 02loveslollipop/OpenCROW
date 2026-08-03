@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencrow.02labs.me/schemas/lifecycle-attempt-v2.json",
+  "title": "OpenCROW reproducible attempt",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hypothesis": {"type": "string", "minLength": 1},
+    "action": {"type": "string", "minLength": 1},
+    "command": {"type": "string", "minLength": 1},
+    "outcome": {"type": "string", "minLength": 1},
+    "evidence": {"type": "string", "minLength": 1},
+    "status": {"enum": ["pending", "succeeded", "failed", "inconclusive"]},
+    "next_action": {"type": "string", "minLength": 1}
+  },
+  "required": ["hypothesis", "action", "command", "outcome", "evidence", "status", "next_action"]
+}

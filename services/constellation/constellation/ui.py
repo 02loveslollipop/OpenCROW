@@ -148,6 +148,7 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
                 description=request.form.get("description", "").strip(),
                 category=request.form.get("category", "").strip() or "misc",
                 challenge_type=challenge_type,
+                provider=request.form.get("provider", "codex").strip() or "codex",
                 runtime_id=request.form.get("runtime_id", "").strip() or None,
                 handoff_urls=handoff_urls,
                 slug=request.form.get("slug", "").strip() or None,
@@ -175,6 +176,7 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
                 role=role,
                 display_name=f"{challenge['title']} {role}",
                 runtime_id=challenge.get("runtime_id"),
+                provider=challenge.get("provider"),
                 model=settings.get("model"),
             )
         except ConstellationAPIError as exc:
@@ -234,6 +236,7 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
                 display_name=request.form.get("display_name", "").strip() or "Slave agent",
                 prompt=request.form.get("prompt", "").strip() or None,
                 runtime_id=request.form.get("runtime_id", "").strip() or None,
+                provider=request.form.get("provider", "").strip() or None,
                 model=request.form.get("model", "").strip() or None,
                 require_approval=request.form.get("require_approval") == "1",
             )

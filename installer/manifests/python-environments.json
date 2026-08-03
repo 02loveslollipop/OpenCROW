@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "ctf": {
+    "python": "3.12",
+    "runtime_packages": ["tornado", "Flask", "pymongo", "requests", "watchdog", "websocket-client", "openai-codex"],
+    "toolboxes": {
+      "utility": [],
+      "network": ["scapy", "impacket"],
+      "reversing": ["capstone", "unicorn", "angr"],
+      "pwn": ["pwntools", "ropper"],
+      "web": ["requests", "beautifulsoup4"],
+      "forensics": ["volatility3", "python-evtx"],
+      "stego": ["Pillow", "stegano"],
+      "crypto": ["pycryptodome", "cryptography", "z3-solver", "sympy"],
+      "osint": ["requests", "dnspython", "python-whois"]
+    }
+  },
+  "sage": {
+    "toolbox": "sagemath",
+    "channels": ["conda-forge"],
+    "packages": ["sagemath"]
+  }
+}

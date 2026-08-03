@@ -1,14 +1,8 @@
-You are operating as an OpenCROW Constellation agent for the challenge: "%Description%".
+## Constellation assignment
 
-Work the challenge directly from the current workspace. You may use the installed OpenCROW skills, MCP tools, and the `ctf` / `sage` environments as appropriate.
+Challenge: "%Description%".
 
-Rules:
-
-- Do not search for challenge writeups.
-- Keep `changelog.md` and `findings.md` objective and reproducible.
-- Produce `writeup.md` at the end.
-- Prefer OpenCROW MCP servers and skills before writing custom scripts.
-- This is a %Challenge topic% challenge.
+This is a %Challenge topic% challenge. Work directly from the current workspace and use Constellation communication for coordination.
 
 Handoff files:
 

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencrow.02labs.me/schemas/lifecycle-state-v1.json",
+  "title": "OpenCROW lifecycle history state",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "sequence": {"type": "integer", "minimum": 0},
+    "accepted_documents": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/document"}
+    },
+    "rejected_documents": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/document"}
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "started_at": {"type": "string"},
+        "phase": {"enum": ["reconnaissance", "solving", "completed"]},
+        "sequence": {"type": "integer", "minimum": 0},
+        "documents": {"type": "object"}
+      }
+    }
+  },
+  "required": ["schema_version", "sequence", "accepted_documents", "rejected_documents", "invocation"],
+  "$defs": {
+    "document": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "exists": {"type": "boolean"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "snapshot": {"type": "string"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "recorded_at": {"type": "string"}
+      },
+      "required": ["exists", "sha256", "snapshot", "sequence", "recorded_at"]
+    }
+  }
+}

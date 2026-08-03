@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "opencrow-lifecycle": {
+      "type": "stdio",
+      "command": "opencrow-lifecycle-mcp",
+      "args": []
+    }
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook session_start --provider claude", "timeout": 15}]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "WebSearch|.*search.*|.*browser.*",
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook pre_tool --provider claude", "timeout": 10}]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook post_tool --provider claude", "timeout": 10}]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook compaction --provider claude", "timeout": 15}]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook stop --provider claude", "timeout": 15}]
+      }
+    ]
+  }
+}

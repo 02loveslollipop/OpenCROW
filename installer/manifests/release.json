@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "version": "2.0.0",
+  "channel": "stable",
+  "supported": {
+    "os": ["linux"],
+    "architectures": ["x86_64", "aarch64"],
+    "package_managers": ["apt", "dnf", "yum", "pacman"]
+  },
+  "portable_python": {
+    "x86_64": {"asset": "opencrow-python-linux-x86_64.tar.gz", "sha256": "release-checksums.txt"},
+    "aarch64": {"asset": "opencrow-python-linux-arm64.tar.gz", "sha256": "release-checksums.txt"}
+  }
+}

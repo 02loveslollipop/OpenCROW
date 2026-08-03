@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+OPENCROW_LIFECYCLE_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export PYTHONPATH="$OPENCROW_LIFECYCLE_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+exec "${OPENCROW_PYTHON:-python3}" -m opencrow_lifecycle.hooks "$@"

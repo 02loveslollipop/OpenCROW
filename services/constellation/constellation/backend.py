@@ -185,6 +185,7 @@ class ChallengeCollectionHandler(BaseHandler):
                 category=str(payload.get("category", "misc")).strip() or "misc",
                 challenge_type=str(payload.get("challenge_type", "single_agent")).strip() or "single_agent",
                 runtime_id=str(payload.get("runtime_id", "")).strip() or None,
+                provider=str(payload.get("provider", "codex")).strip() or "codex",
                 handoff_urls=handoff_urls,
                 settings=payload.get("settings") if isinstance(payload.get("settings"), dict) else None,
                 slug=str(payload.get("slug", "")).strip() or None,
@@ -275,6 +276,7 @@ class ChallengeAgentsHandler(BaseHandler):
             display_name=str(payload.get("display_name", "")).strip() or f"{challenge['title']} {role}",
             prompt=prompt,
             runtime_id=str(payload.get("runtime_id", "")).strip() or challenge.get("runtime_id"),
+            provider=str(payload.get("provider", "")).strip() or challenge.get("provider"),
             model=str(payload.get("model", "")).strip() or None,
             metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
             require_approval=require_approval,
@@ -751,8 +753,8 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
         return True
 
     def select_subprotocol(self, subprotocols: list[str]) -> str | None:
-        if "opencrow.runtime.v1" in subprotocols:
-            return "opencrow.runtime.v1"
+        if "opencrow.runtime.v2" in subprotocols:
+            return "opencrow.runtime.v2"
         return None
 
     def open(self) -> None:
@@ -760,7 +762,7 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
         if not self.app_state.storage.validate_system_token(token):
             self.close(code=4001, reason="Unauthorized")
             return
-        self.write_message(json.dumps({"event_type": "hello", "protocol": "opencrow.runtime.v1"}))
+        self.write_message(json.dumps({"event_type": "hello", "protocol": "opencrow.runtime.v2"}))
 
     def on_message(self, message: str) -> None:
         try:
@@ -803,12 +805,24 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
                 agent = self.app_state.storage.update_agent_state(
                     str(payload.get("agent_id", "")),
                     status=str(payload.get("status", "")).strip() or None,
-                    codex_thread_id=str(payload.get("codex_thread_id", "")).strip() or None,
+                    provider_session_id=str(payload.get("provider_session_id", "")).strip() or None,
+                    lifecycle_phase=str(payload.get("lifecycle_phase", "")).strip() or None,
                     workspace_path=str(payload.get("workspace_path", "")).strip() or None,
                     last_response=str(payload.get("last_response", "")).strip() or None,
                     metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
                 )
-                self.write_message(json.dumps({"event_type": "agent_state", "agent": agent}))
+                continuation = self.app_state.storage.queue_recon_solve_continuation(agent["id"])
+                delivered = self.app_state.deliver_runtime_command(continuation) if continuation else False
+                self.write_message(
+                    json.dumps(
+                        {
+                            "event_type": "agent_state",
+                            "agent": agent,
+                            "solve_continuation": continuation,
+                            "solve_continuation_delivered": delivered,
+                        }
+                    )
+                )
                 return
             if action == "agent_event":
                 event = self.app_state.storage.record_agent_event(

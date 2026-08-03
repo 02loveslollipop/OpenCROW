@@ -1,54 +1,42 @@
 #!/usr/bin/env bash
-# OpenCROW Lightweight E2E Installation & Functionality Test
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_HOME="/tmp/opencrow-e2e-test-$$"
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+TEST_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/opencrow-e2e.XXXXXX")
+trap 'rm -rf "$TEST_ROOT"' EXIT
 
-cleanup() {
-  echo "==> Cleaning up temporary test directory ${TEST_HOME}..."
-  rm -rf "$TEST_HOME"
-}
-trap cleanup EXIT
+python3 "$ROOT_DIR/scripts/build_releases.py" --allow-development-placeholders
+FULL_BUNDLE=$ROOT_DIR/dist/opencrow-full.zip
+SKILLS_BUNDLE=$ROOT_DIR/dist/opencrow-skills.zip
+[[ -f "$FULL_BUNDLE" && -f "$SKILLS_BUNDLE" ]]
 
-echo "==> 1. Building release packages..."
-python3 "$ROOT_DIR/scripts/build_releases.py"
+mkdir -p "$TEST_ROOT/bin"
+for provider in codex opencode claude agy; do
+  printf '#!/bin/sh\necho "%s 99.0.0"\n' "$provider" >"$TEST_ROOT/bin/$provider"
+  chmod +x "$TEST_ROOT/bin/$provider"
+done
+export PATH="$TEST_ROOT/bin:$PATH"
+export OPENCROW_TARGET_HOME="$TEST_ROOT/home"
+export OPENCROW_BIN_DIR="$TEST_ROOT/home/.local/bin"
+export XDG_DATA_HOME="$TEST_ROOT/home/.local/share"
+export XDG_STATE_HOME="$TEST_ROOT/home/.local/state"
+export OPENCROW_PYTHON=$(command -v python3)
+mkdir -p "$OPENCROW_TARGET_HOME"
 
-CLI_ZIP="$ROOT_DIR/dist/opencrow-cli.zip"
-if [[ ! -f "$CLI_ZIP" ]]; then
-  echo "Error: $CLI_ZIP was not created." >&2
-  exit 1
-fi
+bash "$ROOT_DIR/installer/skills.sh" --bundle "$SKILLS_BUNDLE" --yes >/dev/null
+MANAGER=$OPENCROW_BIN_DIR/opencrow
+"$MANAGER" doctor >"$TEST_ROOT/doctor.json"
+grep -q '"ok": true' "$TEST_ROOT/doctor.json"
+"$MANAGER" integrations list >/dev/null
 
-echo "==> 2. Setting up isolated test environment in ${TEST_HOME}..."
-mkdir -p "$TEST_HOME/.local/share/opencrow/cli-bundle"
-
-echo "==> 3. Unpacking release bundle..."
-unzip -q "$CLI_ZIP" -d "$TEST_HOME/.local/share/opencrow/cli-bundle"
-
-INSTALL_SCRIPT="$TEST_HOME/.local/share/opencrow/cli-bundle/scripts/install_headless.sh"
-if [[ ! -f "$INSTALL_SCRIPT" ]]; then
-  echo "Error: install_headless.sh not found in release bundle." >&2
-  exit 1
-fi
-
-chmod +x "$INSTALL_SCRIPT"
-
-echo "==> 4. Executing dry-run headless installation..."
-OPENCROW_HOME="$TEST_HOME" bash "$INSTALL_SCRIPT" --env ctf --profile headless --dry-run
-
-echo "==> 5. Verifying bundled entrypoint scripts and skill directories..."
-BUNDLE_SCRIPTS="$TEST_HOME/.local/share/opencrow/cli-bundle/scripts"
-BUNDLE_BIN="$TEST_HOME/.local/share/opencrow/cli-bundle/bin"
-BUNDLE_SKILLS="$TEST_HOME/.local/share/opencrow/cli-bundle/skills"
-
-test -f "$BUNDLE_SCRIPTS/install_cli.py"
-test -f "$BUNDLE_SCRIPTS/tool_catalog.json"
-test -d "$BUNDLE_SKILLS/opencrow-crypto-toolbox"
-
-echo "==> 6. Testing utility executable flags..."
-PYTHONPATH="$BUNDLE_SCRIPTS" python3 "$BUNDLE_SCRIPTS/opencrow_autosetup.py" --help >/dev/null
-PYTHONPATH="$BUNDLE_SCRIPTS" python3 "$BUNDLE_SCRIPTS/opencrow_exploit.py" --help >/dev/null
-PYTHONPATH="$BUNDLE_SCRIPTS" python3 "$BUNDLE_SCRIPTS/opencrow_crypto_mcp.py" --help >/dev/null
-
-echo "==> Lightweight E2E Installation & Functionality Test PASSED cleanly!"
+python3 "$ROOT_DIR/installer/opencrow_manager.py" internal-install \
+  --bundle "$FULL_BUNDLE" --mode full --agents codex,opencode,claude,antigravity \
+  --toolboxes utility,network >/dev/null
+grep -q '"install_mode": "full"' "$XDG_STATE_HOME/opencrow/state.json"
+[[ -x "$OPENCROW_BIN_DIR/opencrow-init" ]]
+"$MANAGER" update --bundle "$FULL_BUNDLE" >/dev/null
+"$MANAGER" rollback >/dev/null
+"$MANAGER" integrations repair >/dev/null
+"$MANAGER" uninstall --purge-env >/dev/null
+[[ ! -e "$XDG_STATE_HOME/opencrow/state.json" ]]
+printf 'OpenCROW v2 isolated installation transaction passed.\n'

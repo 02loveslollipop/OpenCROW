@@ -1,0 +1,32 @@
+{
+  "description": "OpenCROW canonical challenge lifecycle hooks",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook session_start --provider codex", "timeout": 15}]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "WebSearch|.*search.*|.*browser.*",
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook pre_tool --provider codex", "timeout": 10}]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook post_tool --provider codex", "timeout": 10}]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook compaction --provider codex", "timeout": 15}]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{"type": "command", "command": "opencrow-lifecycle-hook stop --provider codex", "timeout": 15}]
+      }
+    ]
+  }
+}

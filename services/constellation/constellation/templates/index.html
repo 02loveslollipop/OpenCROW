@@ -30,6 +30,15 @@
         </select>
       </label>
       <label>
+        <span>Default provider</span>
+        <select name="provider">
+          <option value="codex">Codex</option>
+          <option value="opencode">OpenCode</option>
+          <option value="claude">Claude Code</option>
+          <option value="antigravity">Antigravity</option>
+        </select>
+      </label>
+      <label>
         <span>Category</span>
         <input type="text" name="category" value="misc">
       </label>
@@ -63,6 +72,7 @@
           <span>{{ runtime.runtime_id }}</span>
           <span>{{ runtime.status }}</span>
           <span>{{ runtime.active_agent_count }} active agents</span>
+          <span>{{ runtime.capabilities.get("providers", {})|length }} providers</span>
           <span>{{ runtime.last_seen_at }}</span>
         </div>
       </li>
@@ -85,6 +95,7 @@
         <div class="meta">
           <span>{{ challenge.slug }}</span>
           <span>{{ challenge.challenge_type }}</span>
+          <span>{{ challenge.provider }}</span>
           <span>{{ challenge.status }}</span>
           <span>{{ challenge.agent_count }} agents</span>
           <span>{{ challenge.runtime_id or "unassigned" }}</span>
