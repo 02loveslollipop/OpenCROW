@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencrow.02labs.me/schemas/lifecycle-config-v2.json",
+  "title": "OpenCROW lifecycle configuration",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {"const": 2},
+    "enforcement": {"enum": ["strict", "warn", "off"]},
+    "provider": {"enum": ["codex", "opencode", "claude", "antigravity"]},
+    "model": {"type": ["string", "null"]},
+    "invocation_started_phase": {"enum": ["reconnaissance", "solving", "completed"]},
+    "original_challenge_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "required": ["schema_version", "enforcement", "provider", "original_challenge_sha256"]
+}

@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "opencrow-lifecycle-hook session_start --provider antigravity", "timeout": 15}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "opencrow-lifecycle-hook pre_tool --provider antigravity", "timeout": 10}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "opencrow-lifecycle-hook post_tool --provider antigravity", "timeout": 10}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "opencrow-lifecycle-hook compaction --provider antigravity", "timeout": 15}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "opencrow-lifecycle-hook stop --provider antigravity", "timeout": 15}]}]
+  }
+}

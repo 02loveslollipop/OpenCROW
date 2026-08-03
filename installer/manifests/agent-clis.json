@@ -1,0 +1,9 @@
+{
+  "schema_version": 2,
+  "providers": {
+    "codex": {"command": "codex", "method": "npm", "package": "@openai/codex"},
+    "opencode": {"command": "opencode", "method": "vendor-script", "url": "https://opencode.ai/install"},
+    "claude": {"command": "claude", "method": "vendor-script", "url": "https://claude.ai/install.sh"},
+    "antigravity": {"command": "agy", "method": "vendor-script", "url": "https://antigravity.google/cli/install.sh"}
+  }
+}

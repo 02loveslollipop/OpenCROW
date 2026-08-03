@@ -1,4 +1,0 @@
-interface:
-  display_name: "OpenCROW - Web Toolbox"
-  short_description: "Web discovery and fuzzing tools for CTFs"
-  default_prompt: "Use $opencrow-web-toolbox for endpoint discovery, fuzzing, and SQLi workflows with the installed OpenCROW web stack."

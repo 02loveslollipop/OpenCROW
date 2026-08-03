@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "providers": {
+    "codex": {
+      "command": "codex",
+      "minimum_version": "0.116.0",
+      "skills_dir": ".codex/skills",
+      "config": ".codex/config.toml",
+      "hooks": ".codex/hooks.json",
+      "supported_runtime": true
+    },
+    "opencode": {
+      "command": "opencode",
+      "minimum_version": "1.0.0",
+      "skills_dir": ".config/opencode/skills",
+      "config": ".config/opencode/opencode.json",
+      "plugin": ".config/opencode/plugins/opencrow-lifecycle.js",
+      "supported_runtime": true
+    },
+    "claude": {
+      "command": "claude",
+      "minimum_version": "2.0.0",
+      "skills_dir": ".claude/skills",
+      "config": ".claude/settings.json",
+      "supported_runtime": true
+    },
+    "antigravity": {
+      "command": "agy",
+      "minimum_version": "1.0.0",
+      "skills_dir": ".agents/skills",
+      "config": ".gemini/antigravity-cli/settings.json",
+      "mcp_config": ".gemini/antigravity-cli/mcp_config.json",
+      "supported_runtime": true
+    }
+  }
+}

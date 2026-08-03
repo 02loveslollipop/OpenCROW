@@ -1,0 +1,46 @@
+name: Real Provider Compatibility
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PROVIDER_SMOKE_ENABLED: ${{ secrets.OPENCROW_PROVIDER_SMOKE_ENABLED }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pytest -r services/constellation/requirements-runtime.txt
+      - name: Install current provider CLIs through vendor-owned channels
+        run: |
+          npm install --global @openai/codex opencode-ai @anthropic-ai/claude-code
+          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          printf '%s/.local/bin\n' "$HOME" >> "$GITHUB_PATH"
+      - name: Verify discovery, native formats, integrations, and lifecycle registration
+        run: |
+          codex --version
+          opencode --version
+          claude --version
+          agy --version
+          bash installer/skills.sh --agents codex,opencode,claude,antigravity --yes
+          "$HOME/.local/bin/opencrow" integrations list
+          "$HOME/.local/bin/opencrow" doctor
+          pytest -q packages/lifecycle/tests packages/mcp/tests installer/tests services/constellation/tests
+      - name: Optional authenticated minimal turns
+        if: ${{ env.PROVIDER_SMOKE_ENABLED == 'true' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: bash scripts/provider_authenticated_smoke.sh

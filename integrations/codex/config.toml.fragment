@@ -1,0 +1,6 @@
+[features]
+hooks = true
+
+[mcp_servers.opencrow-lifecycle]
+command = "opencrow-lifecycle-mcp"
+args = []

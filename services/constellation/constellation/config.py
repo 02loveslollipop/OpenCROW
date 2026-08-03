@@ -74,6 +74,19 @@ def parse_token_list(raw: Any) -> tuple[str, ...]:
     return (text,) if text else ()
 
 
+def parse_string_map(raw: Any) -> dict[str, str]:
+    if isinstance(raw, dict):
+        return {str(key): str(value) for key, value in raw.items() if str(value).strip()}
+    if isinstance(raw, str) and raw.strip():
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(value, dict):
+            return {str(key): str(item) for key, item in value.items() if str(item).strip()}
+    return {}
+
+
 @dataclass(frozen=True)
 class ClientSettings:
     api_base_url: str
@@ -117,8 +130,10 @@ class RuntimeSettings:
     runtime_id: str
     display_name: str
     workspace_root: str
-    codex_model: str | None
-    codex_bin: str | None
+    default_provider: str
+    supported_providers: tuple[str, ...]
+    provider_models: dict[str, str]
+    provider_bins: dict[str, str]
     reconnect_delay_sec: int
 
 
@@ -386,12 +401,23 @@ def load_runtime_settings() -> RuntimeSettings:
                 "~/.local/share/opencrow/runtime-workspaces",
             )
         ),
-        codex_model=str(model)
-        if (model := _env_or_config("OPENCROW_RUNTIME_CODEX_MODEL", config, "runtime_codex_model", ""))
-        else None,
-        codex_bin=str(codex_bin)
-        if (codex_bin := _env_or_config("OPENCROW_RUNTIME_CODEX_BIN", config, "runtime_codex_bin", ""))
-        else None,
+        default_provider=str(
+            _env_or_config("OPENCROW_RUNTIME_DEFAULT_PROVIDER", config, "runtime_default_provider", "codex")
+        ),
+        supported_providers=parse_token_list(
+            _env_or_config(
+                "OPENCROW_RUNTIME_PROVIDERS",
+                config,
+                "runtime_supported_providers",
+                "codex,opencode,claude,antigravity",
+            )
+        ),
+        provider_models=parse_string_map(
+            _env_or_config("OPENCROW_RUNTIME_PROVIDER_MODELS", config, "runtime_provider_models", {})
+        ),
+        provider_bins=parse_string_map(
+            _env_or_config("OPENCROW_RUNTIME_PROVIDER_BINS", config, "runtime_provider_bins", {})
+        ),
         reconnect_delay_sec=int(
             _env_or_config(
                 "OPENCROW_RUNTIME_RECONNECT_DELAY_SEC",

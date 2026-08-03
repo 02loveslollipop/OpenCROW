@@ -1,57 +1,113 @@
-name: Deploy Release
+name: Stable Release Transaction
 
 on:
   push:
-    branches: [ main, master ]
-    tags:
-      - "v*.*.*"
-  workflow_dispatch:
+    tags: ["*.*.*"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
 jobs:
-  build-and-release:
+  validate-build-publish:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WIKI_DEPLOY_TOKEN: ${{ secrets.WIKI_DEPLOY_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PORTABLE_X86_URL: ${{ vars.PORTABLE_PYTHON_X86_URL }}
+      PORTABLE_X86_SHA256: ${{ vars.PORTABLE_PYTHON_X86_SHA256 }}
+      PORTABLE_ARM64_URL: ${{ vars.PORTABLE_PYTHON_ARM64_URL }}
+      PORTABLE_ARM64_SHA256: ${{ vars.PORTABLE_PYTHON_ARM64_SHA256 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install Python & Dependencies
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install Pytest & Dependencies
+      - name: Validate stable annotated tag on release branch
+        shell: bash
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pytest requests tornado flask pymongo typer rich
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\+[0-9A-Za-z.-]+)?$ ]]
+          [[ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" == tag ]]
+          git fetch origin release
+          SOURCE_SHA=$(git rev-list -n 1 "$GITHUB_REF_NAME")
+          if [[ "$GITHUB_REF_NAME" == *+* ]]; then
+            BUILD_METADATA=${GITHUB_REF_NAME#*+}
+            [[ "$BUILD_METADATA" == *"${SOURCE_SHA:0:12}"* || "$BUILD_METADATA" == *"$SOURCE_SHA"* ]]
+          fi
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/release
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
 
-      - name: Run Verification
-        run: pytest && make smoke ENV=ctf
+      - name: Validate code and documentation
+        run: |
+          python -m pip install --upgrade pip pytest -r services/constellation/requirements-runtime.txt
+          make test
+          make smoke
+          python scripts/validate_docs.py --check-external
 
-      - name: Build Release Packages
-        run: python3 scripts/build_releases.py
+      - name: Fetch and verify portable CPython inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${PORTABLE_X86_URL:?configure PORTABLE_PYTHON_X86_URL}"
+          : "${PORTABLE_X86_SHA256:?configure PORTABLE_PYTHON_X86_SHA256}"
+          : "${PORTABLE_ARM64_URL:?configure PORTABLE_PYTHON_ARM64_URL}"
+          : "${PORTABLE_ARM64_SHA256:?configure PORTABLE_PYTHON_ARM64_SHA256}"
+          curl -fsSL "$PORTABLE_X86_URL" -o /tmp/python-x86.tar.gz
+          curl -fsSL "$PORTABLE_ARM64_URL" -o /tmp/python-arm64.tar.gz
+          printf '%s  %s\n' "$PORTABLE_X86_SHA256" /tmp/python-x86.tar.gz | sha256sum -c -
+          printf '%s  %s\n' "$PORTABLE_ARM64_SHA256" /tmp/python-arm64.tar.gz | sha256sum -c -
 
-      - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
-        with:
-          files: |
-            dist/opencrow-cli.zip
-            dist/opencrow-constellation.zip
-          draft: false
-          prerelease: false
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest OpenCROW Release' }}
-          generate_release_notes: true
+      - name: Build verified release assets and Wiki snapshot
+        run: |
+          python scripts/build_releases.py \
+            --version "$GITHUB_REF_NAME" \
+            --release-tag "$GITHUB_REF_NAME" \
+            --source-sha "$GITHUB_SHA" \
+            --portable-python-x86 /tmp/python-x86.tar.gz \
+            --portable-python-arm64 /tmp/python-arm64.tar.gz \
+            --require-release-ready
+          git diff --exit-code
 
-      - name: Deploy Installer to Cloudflare Pages
+      - name: Create draft GitHub Release and upload assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "OpenCROW $GITHUB_REF_NAME" --generate-notes
+          fi
+          mapfile -t ASSETS < <(find dist -maxdepth 1 -type f -print | sort)
+          gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
+
+      - name: Synchronize generated Wiki using dedicated credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${WIKI_DEPLOY_TOKEN:?WIKI_DEPLOY_TOKEN is required}"
+          git clone "https://x-access-token:${WIKI_DEPLOY_TOKEN}@github.com/02loveslollipop/OpenCROW.wiki.git" /tmp/opencrow-wiki
+          find /tmp/opencrow-wiki -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          cp -a dist/wiki/. /tmp/opencrow-wiki/
+          git -C /tmp/opencrow-wiki config user.name opencrow-release-bot
+          git -C /tmp/opencrow-wiki config user.email opencrow-release-bot@users.noreply.github.com
+          git -C /tmp/opencrow-wiki add --all
+          git -C /tmp/opencrow-wiki commit --allow-empty -m "OpenCROW $GITHUB_REF_NAME ($GITHUB_SHA)"
+          git -C /tmp/opencrow-wiki push origin HEAD:master
+
+      - name: Publish GitHub Release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+
+      - name: Advance Cloudflare stable installer pointers
         uses: cloudflare/wrangler-action@v3
-        if: (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch') && env.CLOUDFLARE_API_TOKEN != ''
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist-pages --project-name opencrow --branch main
+          command: pages deploy dist-pages --project-name opencrow --branch release

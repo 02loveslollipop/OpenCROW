@@ -1,13 +1,13 @@
 # OpenCROW Constellation
 
-OpenCROW Constellation is the multi-agent coordination core of OpenCROW. It provides topic management, directive broadcasting, finding/changelog corpus synchronization, resumable Codex sessions, and GridFS artifact storage.
+OpenCROW Constellation is the multi-agent coordination core of OpenCROW. It provides topic management, directive broadcasting, lifecycle artifact synchronization, native resumable sessions for all supported providers, and GridFS artifact storage.
 
 ## Running Constellation with Docker Compose
 
 1. Extract the release package:
    ```bash
    unzip opencrow-constellation.zip -d opencrow-constellation
-   cd opencrow-constellation
+   cd opencrow-constellation/services/constellation
    ```
 
 2. Start the services:
@@ -20,10 +20,11 @@ OpenCROW Constellation is the multi-agent coordination core of OpenCROW. It prov
    docker compose ps
    ```
 
-The backend server will run on port `8080` (or `8000`), and the UI web dashboard will be available at `http://localhost:5000`.
+The backend runs on port `8787`, and the UI dashboard is available at `http://localhost:8788`.
 
 ## Architecture Components
 
 - **Backend**: Tornado REST & Websocket event orchestration engine.
 - **UI**: Flask web dashboard for monitoring topics, live chat, and artifacts.
 - **MongoDB & GridFS**: Document database for persistent topic logs and immutable file artifacts.
+- **Trusted runtime hosts**: Provider-neutral adapters for Codex, OpenCode, Claude Code, and Antigravity. These hosts execute agents in full-auto mode and must be isolated accordingly.

@@ -1,97 +1,50 @@
 # OpenCROW
 
-Open Codex Runtime for Offensive Workflows.
+Portable agent runtime, skills, and multi-provider challenge orchestration.
 
-OpenCROW is an agentic AI orchestration framework for offensive security and CTF workflows. It bootstraps a local execution runtime around an existing Anaconda or Miniconda installation, syncs repo-managed Codex skills into `~/.codex/skills`, installs the underlying execution stack those agents need, and exposes provider-neutral stdio MCP servers so agents can work through typed interfaces instead of ad hoc shell glue.
+OpenCROW v2 is a breaking, provider-neutral release for Codex, OpenCode, Claude Code, and Antigravity (`agy`). It gives each challenge an append-only knowledge lifecycle, portable Agent Skills, typed MCP operations, transactional installation, and an optional trusted multi-agent Constellation runtime.
 
-The project is structured as a monorepo containing services for the CLI runtime, MCP servers, agent skills, and OpenCROW Constellation:
+## Quick start
 
-- `services/opencrow-cli`: Workflow entrypoints (`opencrow-autosetup`, `opencrow-exploit`), MCP servers, installer, and agent skills.
-- `services/constellation`: OpenCROW Constellation backend, UI dashboard, and multi-agent coordination surface.
-- `docs`: Project documentation and MCP specs.
-
----
-
-## Installation via GitHub Releases
-
-OpenCROW is distributed via GitHub Releases. End users do not need to clone the repository to install and use OpenCROW.
-
-### 1. Installing OpenCROW CLI
-
-To install the OpenCROW CLI, run the single-command remote installer:
+Install only portable skills, hooks, lifecycle MCP, helper Python, and the management command (no sudo):
 
 ```bash
-curl -fsSL https://opencrow.02labs.me/releases/cli.sh | bash
+curl -fsSL https://opencrow.02labs.me/skills.sh | bash
 ```
 
-To install a specific version release:
+Install the complete framework on a supported Linux host:
 
 ```bash
-curl -fsSL https://opencrow.02labs.me/releases/cli.sh | bash -s -- --version v1.0.0
+curl -fsSL https://opencrow.02labs.me/install.sh | sudo bash
 ```
 
-### 2. Deploying OpenCROW Constellation (Docker)
-
-OpenCROW Constellation runs as a set of containerized services (Backend, UI, MongoDB, GridFS). To deploy Constellation:
-
-1. Download `opencrow-constellation.zip` from the latest [GitHub Release](https://github.com/02loveslollipop/OpenCROW/releases).
-2. Extract the package and start the services using Docker Compose:
+Initialize one local challenge phase after a full installation:
 
 ```bash
-unzip opencrow-constellation.zip -d opencrow-constellation
-cd opencrow-constellation
-docker compose up -d
+mkdir challenge && cd challenge
+opencrow-init codex --challenge-file /path/to/description.txt
 ```
 
----
+The five lifecycle documents are `CHALLENGE.md`, `FINDINGS.md`, `CHANGELOG.md`, `HANDOFF.md`, and `WRITEUP.md`. The Original Challenge is immutable; clarifications and all other knowledge are append-only.
 
-## OpenCROW Monorepo Development
+## Repository layout
 
-This repository is strictly dedicated to development, testing, and building release packages.
+- `skills/` — one provider-neutral Agent Skills source tree.
+- `packages/lifecycle/` — lifecycle engine, MCP, hooks, prompt, templates, and schemas.
+- `packages/mcp/` — common MCP core and domain servers.
+- `integrations/` — thin native provider adapters.
+- `installer/` — selectors, state transactions, platform maps, and manifests.
+- `services/constellation/` — dashboard, backend, provider adapters, and trusted runtime.
+- `docs/` — authoritative user, operator, and contributor documentation.
 
-### Monorepo Build & Development Commands
+## Development
 
-From the repository root:
+```bash
+make test
+make smoke
+make build-releases
+```
 
-- **Build GitHub Release packages**:
-  ```bash
-  make build-releases
-  ```
-  *(Packages `dist/opencrow-cli.zip` and `dist/opencrow-constellation.zip`)*
+See [Quick start](docs/user/quick-start.md), [installation](docs/user/installation.md), [challenge lifecycle](docs/user/challenge-lifecycle.md), and [Constellation operations](docs/operator/constellation.md).
 
-- **Run smoke verification**:
-  ```bash
-  make smoke
-  ```
-
-- **Run unit test suite**:
-  ```bash
-  make test
-  ```
-
-- **Run local CLI installation dry-run**:
-  ```bash
-  make dry-run
-  ```
-
----
-
-## Requirements
-
-- An existing Anaconda or Miniconda installation
-- Ubuntu or another Debian-like system with `apt-get`
-- `sudo` access for system package installation
-- Network access
-
-If Conda is missing, the installer stops and prints official download links:
-
-- Miniconda: <https://docs.conda.io/en/latest/miniconda.html>
-- Anaconda: <https://www.anaconda.com/download>
-
----
-
-## Architecture & Documentation
-
-- [docs/MCP_ARCHITECTURE.md](docs/MCP_ARCHITECTURE.md) - Standard specification for OpenCROW stdio MCP servers.
-- [docs/RUNTIME_DASHBOARD.md](docs/RUNTIME_DASHBOARD.md) - Dashboard interface reference.
-- [services/constellation/README.md](services/constellation/README.md) - OpenCROW Constellation setup guide.
+The public GitHub Wiki is generated from a manifest-selected subset of repository documentation at stable releases. Direct Wiki edits are overwritten and are not supported.
