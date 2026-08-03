@@ -93,7 +93,13 @@ def tree_hashes(root: Path) -> dict[str, str]:
 def copy_tree(source: Path, target: Path) -> None:
     if not source.is_dir():
         raise InstallError(f"Required source directory is missing: {source}")
-    shutil.copytree(source, target, dirs_exist_ok=True, symlinks=True)
+    shutil.copytree(
+        source,
+        target,
+        dirs_exist_ok=True,
+        symlinks=True,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".pytest_cache"),
+    )
 
 
 def command_version(command: str) -> str | None:
@@ -396,6 +402,7 @@ class StateEngine:
         helper = self.paths.data / "helper" / "bin" / "python"
         ctf = self.paths.data / "envs" / "ctf" / "bin" / "python"
         return (
+            "export PYTHONDONTWRITEBYTECODE=1\n"
             'OPENCROW_RUNTIME_PYTHON="${OPENCROW_PYTHON:-}"\n'
             f'if [ ! -x "$OPENCROW_RUNTIME_PYTHON" ]; then OPENCROW_RUNTIME_PYTHON={shlex_quote(str(ctf))}; fi\n'
             f'if [ ! -x "$OPENCROW_RUNTIME_PYTHON" ]; then OPENCROW_RUNTIME_PYTHON={shlex_quote(str(helper))}; fi\n'

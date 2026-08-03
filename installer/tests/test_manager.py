@@ -44,11 +44,14 @@ def test_skills_install_is_rootless_and_omits_heavy_surface(tmp_path: Path) -> N
     assert state["install_mode"] == "skills"
     assert (paths.bin / "opencrow").is_file()
     assert (paths.bin / "opencrow-lifecycle-mcp").is_file()
+    assert "PYTHONDONTWRITEBYTECODE=1" in (paths.bin / "opencrow-lifecycle-mcp").read_text()
     assert not (paths.bin / "opencrow-init").exists()
     assert not (paths.current / "services/constellation").exists()
     assert not (paths.current / "packages/mcp").exists()
     assert (paths.home / ".codex/skills/netcat-async").is_symlink()
     assert (paths.home / ".config/opencode/plugins/opencrow-lifecycle.js").is_file()
+    assert not any("__pycache__" in path.parts for path in paths.current.rglob("*"))
+    assert not any(path.suffix in {".pyc", ".pyo"} for path in paths.current.rglob("*"))
 
 
 def test_full_install_upgrades_in_place_and_retains_one_snapshot(tmp_path: Path) -> None:
