@@ -240,6 +240,26 @@ def test_vendor_cli_purge_without_receipt_is_unresolved(tmp_path: Path) -> None:
     assert "ownership receipt" in unresolved[0]
 
 
+def test_codex_cli_purge_uses_recorded_npm_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = paths_for(tmp_path)
+    commands: list[list[str]] = []
+    monkeypatch.setattr("opencrow_manager.shutil.which", lambda command: f"/usr/bin/{command}")
+
+    def run(command, **_kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("opencrow_manager.subprocess.run", run)
+    state = {"package_methods": {"agent_clis": {"installed": ["codex"]}}}
+    removed, unresolved = StateEngine(paths)._purge_agent_clis(state)
+    assert removed == ["codex"] and unresolved == []
+    assert commands == [
+        ["npm", "uninstall", "--global", "--prefix", str(paths.home / ".local"), "@openai/codex"]
+    ]
+
+
 def test_agent_cli_receipts_survive_desired_state_merge() -> None:
     from opencrow_manager import merge_package_history
 

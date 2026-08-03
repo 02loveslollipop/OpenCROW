@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
+import types
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +12,7 @@ from constellation.providers import (
     Availability,
     AntigravityAdapter,
     ClaudeAdapter,
+    CodexAdapter,
     OpenCodeAdapter,
     _compatibility,
     extract_session_id,
@@ -61,6 +65,72 @@ def test_provider_session_id_extraction(event: dict, expected: str) -> None:
 )
 def test_runtime_provider_version_compatibility(detected: str, expected: str) -> None:
     assert _compatibility(detected, "0.116.0")[0] == expected
+
+
+def test_codex_sdk_adapter_starts_and_resumes_native_threads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class TextInput:
+        def __init__(self, *, text: str) -> None:
+            self.text = text
+
+    class Thread:
+        def __init__(self, identifier: str) -> None:
+            self.id = identifier
+
+        @staticmethod
+        def turn(value, **kwargs):
+            assert isinstance(value, TextInput)
+            assert kwargs["cwd"] == str(tmp_path)
+            return _FixtureTurn()
+
+    class Client:
+        def __init__(self) -> None:
+            self.started: list[dict] = []
+            self.resumed: list[tuple[str, dict]] = []
+
+        def thread_start(self, **kwargs):
+            self.started.append(kwargs)
+            return Thread("codex-started")
+
+        def thread_resume(self, identifier, **kwargs):
+            self.resumed.append((identifier, kwargs))
+            return Thread("codex-resumed")
+
+    approval = types.SimpleNamespace(deny_all="deny-all")
+    sandbox = types.SimpleNamespace(danger_full_access="danger-full-access")
+    monkeypatch.setitem(sys.modules, "openai_codex", types.SimpleNamespace(ApprovalMode=approval, TextInput=TextInput))
+    monkeypatch.setitem(sys.modules, "openai_codex.api", types.SimpleNamespace(SandboxMode=sandbox))
+    adapter = CodexAdapter(model="gpt-test")
+    client = Client()
+    adapter._client = client
+    started = adapter.start(prompt="solve", workspace=tmp_path)
+    resumed = adapter.resume(session_id="saved-thread", prompt="continue", workspace=tmp_path)
+    assert started.provider_session_id == "codex-started"
+    assert resumed.provider_session_id == "codex-resumed"
+    assert client.started[0]["approval_mode"] == "deny-all"
+    assert client.started[0]["sandbox"] == "danger-full-access"
+    assert client.resumed[0][0] == "saved-thread"
+
+
+def test_codex_availability_requires_both_cli_and_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("constellation.providers.shutil.which", lambda _command: "/usr/bin/codex")
+    monkeypatch.setattr(
+        "constellation.providers.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="codex 99.0.0\n", stderr=""),
+    )
+    monkeypatch.delitem(sys.modules, "openai_codex", raising=False)
+    real_import = __import__
+
+    def reject_sdk(name, *args, **kwargs):
+        if name == "openai_codex":
+            raise ImportError("missing SDK")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", reject_sdk)
+    availability = CodexAdapter().availability()
+    assert availability.available is False
+    assert "SDK" in str(availability.reason)
 
 
 def test_runtime_settings_are_provider_neutral(monkeypatch: pytest.MonkeyPatch) -> None:
