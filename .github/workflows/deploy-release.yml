@@ -24,11 +24,11 @@ jobs:
       PORTABLE_ARM64_URL: ${{ vars.PORTABLE_PYTHON_ARM64_URL }}
       PORTABLE_ARM64_SHA256: ${{ vars.PORTABLE_PYTHON_ARM64_SHA256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -106,7 +106,7 @@ jobs:
         run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
 
       - name: Advance Cloudflare stable installer pointers
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
