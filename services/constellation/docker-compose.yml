@@ -31,8 +31,8 @@ services:
 
   constellation-backend:
     build:
-      context: .
-      dockerfile: constellation/Dockerfile.backend
+      context: ../..
+      dockerfile: services/constellation/constellation/Dockerfile.backend
     restart: unless-stopped
     environment:
       OPENCROW_CONSTELLATION_MONGO_URI: mongodb://mongo:27017
@@ -51,8 +51,8 @@ services:
 
   constellation-ui:
     build:
-      context: .
-      dockerfile: constellation/Dockerfile.ui
+      context: ../..
+      dockerfile: services/constellation/constellation/Dockerfile.ui
     restart: unless-stopped
     environment:
       OPENCROW_CONSTELLATION_UI_BACKEND_API_BASE_URL: http://constellation-backend:8787

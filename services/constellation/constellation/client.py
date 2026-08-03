@@ -148,6 +148,7 @@ class ConstellationAPIClient:
         description: str,
         category: str,
         challenge_type: str,
+        provider: str = "codex",
         runtime_id: str | None = None,
         handoff_urls: list[str] | None = None,
         slug: str | None = None,
@@ -159,6 +160,7 @@ class ConstellationAPIClient:
             "description": description,
             "category": category,
             "challenge_type": challenge_type,
+            "provider": provider,
             "handoff_urls": handoff_urls or [],
             "start_agent": start_agent,
         }
@@ -208,6 +210,7 @@ class ConstellationAPIClient:
         display_name: str,
         prompt: str | None = None,
         runtime_id: str | None = None,
+        provider: str | None = None,
         model: str | None = None,
         require_approval: bool = False,
     ) -> dict[str, Any]:
@@ -220,6 +223,8 @@ class ConstellationAPIClient:
             payload["prompt"] = prompt
         if runtime_id:
             payload["runtime_id"] = runtime_id
+        if provider:
+            payload["provider"] = provider
         if model:
             payload["model"] = model
         return self._json("POST", f"/challenges/{challenge_id}/agents", json=payload)

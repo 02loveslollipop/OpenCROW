@@ -5,7 +5,7 @@ This document defines the contract for OpenCROW toolbox and I/O MCP servers.
 ## Principles
 
 - One MCP server per toolbox or session-oriented I/O domain helper.
-- Python stdio transport is the v1 baseline.
+- Python stdio transport is the v2 baseline.
 - Servers must be provider-neutral and consumable by Codex, Claude Code, Gemini, Copilot, and other MCP-capable clients.
 - Toolbox servers must expose typed domain tools, not a generic shell-exec surface.
 - Tool names, input shapes, and response envelopes must be stable across toolboxes.
@@ -31,7 +31,7 @@ Every server must also expose MCP resources:
 - static metadata resources for server info, capabilities, and verification guidance
 - at least one resource template for tool- or domain-specific lookups
 
-The shared v1 defaults are:
+The shared v2 defaults are:
 
 - `opencrow://<server>/server`
 - `opencrow://<server>/capabilities`
@@ -87,30 +87,11 @@ Resource reads should return structured text or JSON content with stable URIs an
 
 ## Execution Rules
 
-- Servers should prefer the installed native CLI or the managed `ctf` conda environment when a dependency lives there.
+- Servers probe required native commands and modules before use. Python selection is explicit override, appropriate `ctf` or `sage` environment, managed helper, then current/system Python.
 - Tool wrappers must preserve reproducibility by reporting the executed command.
 - Server behavior must be deterministic for the same inputs and environment.
 - Stdout and stderr should be captured and returned in bounded form.
 
-## Wave 1 Order
+## Source ownership
 
-The first migration wave uses this order:
-
-1. `opencrow-stego-toolbox`
-2. `opencrow-forensics-toolbox`
-3. `opencrow-osint-toolbox`
-4. `opencrow-web-toolbox`
-
-These are the smallest current toolboxes and are suitable for establishing the shared contract before migrating the Python-heavy or exploit-heavy toolboxes.
-
-The next migration wave extends the same contract to OpenCROW I/O helpers:
-
-1. `netcat-async`
-2. `ssh-async`
-3. `minecraft-async`
-
-The current wave after I/O extends the same contract to the larger Python-heavy toolboxes:
-
-1. `opencrow-crypto-toolbox`
-2. `opencrow-pwn-toolbox`
-3. `opencrow-reversing-toolbox`
+Common protocol and execution code lives in `packages/mcp/core/`; typed domain servers live in `packages/mcp/servers/`. Provider integrations register PATH-resolved launchers and do not maintain provider-specific copies of MCP code.

@@ -10,10 +10,15 @@ from .workspace import ensure_state_dir
 
 
 PUBLIC_PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "constellation_public.md"
+LIFECYCLE_PROMPT_PATH = Path(__file__).resolve().parents[3] / "packages" / "lifecycle" / "prompt.md"
+
+
+def load_lifecycle_prompt_template() -> str:
+    return LIFECYCLE_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 def load_public_prompt_template() -> str:
-    return PUBLIC_PROMPT_PATH.read_text(encoding="utf-8")
+    return load_lifecycle_prompt_template().rstrip() + "\n\n" + PUBLIC_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 def load_private_prompt_template(settings: ClientSettings) -> str | None:
@@ -45,7 +50,7 @@ def render_join_prompt(template: str, topic: dict[str, object]) -> str:
         "- Treat `task_directive` messages as hard-priority instructions.",
         "- Use `chat_message` for discussion and `broadcast_event` for topic-wide notices.",
         "- Shared corpus documents are synchronized automatically from markdown files in the workspace.",
-        "- Final artifact upload is only for `writeup.md`, the verified flag, and explicit solver files.",
+        "- All five canonical lifecycle documents are uploaded as agent artifacts after each turn.",
     ]
     return rendered.rstrip() + "\n" + "\n".join(appendix) + "\n"
 

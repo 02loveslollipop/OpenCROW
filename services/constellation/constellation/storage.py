@@ -18,6 +18,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 from pymongo import ReturnDocument
 
 from .config import BackendSettings
+from .prompts import load_lifecycle_prompt_template
 
 
 TOPIC_SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -175,16 +176,33 @@ class ConstellationStorage:
         doc = self.runtimes.find_one({"runtime_id": runtime_id})
         return self._public_runtime(doc) if doc else None
 
-    def _choose_runtime(self, runtime_id: str | None = None) -> str:
+    @staticmethod
+    def _runtime_supports_provider(doc: dict[str, Any], provider: str) -> bool:
+        capabilities = doc.get("capabilities") if isinstance(doc.get("capabilities"), dict) else {}
+        providers = capabilities.get("providers")
+        if isinstance(providers, dict):
+            value = providers.get(provider)
+            return (
+                bool(value.get("available")) and value.get("compatibility", "unknown") != "incompatible"
+                if isinstance(value, dict)
+                else bool(value)
+            )
+        if isinstance(providers, list):
+            return provider in providers
+        return False
+
+    def _choose_runtime(self, runtime_id: str | None, provider: str) -> str:
         if runtime_id:
             doc = self.runtimes.find_one({"runtime_id": runtime_id})
             if doc is None:
                 raise KeyError(runtime_id)
+            if not self._runtime_supports_provider(doc, provider):
+                raise RuntimeError(f"Runtime {runtime_id} does not support provider {provider}.")
             return str(doc["runtime_id"])
-        doc = self.runtimes.find_one({"status": "online"}, sort=[("last_seen_at", DESCENDING)])
-        if doc is None:
-            raise RuntimeError("No online runtime is available.")
-        return str(doc["runtime_id"])
+        for doc in self.runtimes.find({"status": "online"}).sort("last_seen_at", DESCENDING):
+            if self._runtime_supports_provider(doc, provider):
+                return str(doc["runtime_id"])
+        raise RuntimeError(f"No online runtime supports provider {provider}.")
 
     def create_challenge(
         self,
@@ -194,6 +212,7 @@ class ConstellationStorage:
         category: str,
         challenge_type: str,
         runtime_id: str | None,
+        provider: str,
         handoff_urls: list[str],
         settings: dict[str, Any] | None = None,
         slug: str | None = None,
@@ -201,7 +220,9 @@ class ConstellationStorage:
         start_agent: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any] | None]:
         normalized_type = challenge_type if challenge_type in {"single_agent", "constellation"} else "single_agent"
-        assigned_runtime = self._choose_runtime(runtime_id)
+        if provider not in {"codex", "opencode", "claude", "antigravity"}:
+            raise ValueError(f"Unsupported provider: {provider}")
+        assigned_runtime = self._choose_runtime(runtime_id, provider)
         now = utc_now()
         challenge_slug = slugify(slug or title)
         doc = {
@@ -212,6 +233,7 @@ class ConstellationStorage:
             "challenge_type": normalized_type,
             "status": "queued" if start_agent else "created",
             "runtime_id": assigned_runtime,
+            "provider": provider,
             "handoff_urls": [value.strip() for value in handoff_urls if value.strip()],
             "settings": settings or {},
             "metadata": metadata or {},
@@ -234,6 +256,7 @@ class ConstellationStorage:
             display_name=f"{challenge['title']} {role}",
             prompt=prompt,
             runtime_id=assigned_runtime,
+            provider=provider,
             model=(settings or {}).get("model"),
         )
         command = self.queue_runtime_command(
@@ -296,14 +319,14 @@ class ConstellationStorage:
         else:
             role_text = "Plan and execute the solve path end to end."
         return (
-            f"You are an OpenCROW Codex agent for challenge `{challenge['title']}`.\n\n"
+            load_lifecycle_prompt_template().rstrip()
+            + "\n\n## Constellation assignment\n\n"
+            + f"Challenge: `{challenge['title']}`.\n\n"
             f"Category: {challenge.get('category', 'misc')}\n"
             f"Role: {role}\n\n"
             f"Description:\n{challenge.get('description', '')}\n\n"
             f"Handoff URLs:\n{handoff}\n\n"
             f"{role_text}\n"
-            "Use installed OpenCROW skills and MCP tools first when they fit. "
-            "Keep findings and repeatable evidence in workspace files, and produce final artifacts when solved.\n"
         )
 
     def add_challenge_file(self, challenge_id: str, *, filename: str, data: bytes, content_type: str | None = None) -> dict[str, Any]:
@@ -350,6 +373,7 @@ class ConstellationStorage:
         display_name: str,
         prompt: str,
         runtime_id: str | None = None,
+        provider: str | None = None,
         model: str | None = None,
         metadata: dict[str, Any] | None = None,
         require_approval: bool = False,
@@ -357,17 +381,20 @@ class ConstellationStorage:
         challenge = self.get_challenge(challenge_id)
         if challenge is None:
             raise KeyError(challenge_id)
-        assigned_runtime = runtime_id or challenge.get("runtime_id")
-        if not assigned_runtime:
-            assigned_runtime = self._choose_runtime(None)
+        selected_provider = provider or str(challenge.get("provider") or "codex")
+        if selected_provider not in {"codex", "opencode", "claude", "antigravity"}:
+            raise ValueError(f"Unsupported provider: {selected_provider}")
+        assigned_runtime = self._choose_runtime(runtime_id or challenge.get("runtime_id"), selected_provider)
         now = utc_now()
         doc = {
             "challenge_id": challenge["id"],
             "runtime_id": assigned_runtime,
+            "provider": selected_provider,
             "role": role,
             "display_name": display_name.strip() or f"{role} agent",
             "status": "approval_required" if require_approval else "queued",
-            "codex_thread_id": None,
+            "provider_session_id": None,
+            "lifecycle_phase": "reconnaissance",
             "workspace_path": None,
             "model": model,
             "prompt": prompt,
@@ -405,7 +432,8 @@ class ConstellationStorage:
         agent_id: str,
         *,
         status: str | None = None,
-        codex_thread_id: str | None = None,
+        provider_session_id: str | None = None,
+        lifecycle_phase: str | None = None,
         workspace_path: str | None = None,
         last_response: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -418,8 +446,12 @@ class ConstellationStorage:
                 updates.setdefault("started_at", now)
             if status in {"completed", "failed", "stopped", "interrupted"}:
                 updates["finished_at"] = now
-        if codex_thread_id is not None:
-            updates["codex_thread_id"] = codex_thread_id
+        if provider_session_id is not None:
+            updates["provider_session_id"] = provider_session_id
+        if lifecycle_phase is not None:
+            if lifecycle_phase not in {"reconnaissance", "solving", "completed"}:
+                raise ValueError(f"Invalid lifecycle phase: {lifecycle_phase}")
+            updates["lifecycle_phase"] = lifecycle_phase
         if workspace_path is not None:
             updates["workspace_path"] = workspace_path
         if last_response is not None:
@@ -433,6 +465,16 @@ class ConstellationStorage:
         )
         if doc is None:
             raise KeyError(agent_id)
+        if lifecycle_phase is not None and doc.get("role") in {"master", "solo"}:
+            challenge_updates: dict[str, Any] = {"lifecycle_phase": lifecycle_phase, "updated_at": now}
+            if status == "completed":
+                challenge_updates["status"] = "completed" if lifecycle_phase == "completed" else "solving"
+            elif status == "lifecycle_blocked":
+                challenge_updates["status"] = "checkpoint_required"
+            self.challenges.update_one(
+                {"_id": ObjectId(str(doc["challenge_id"]))},
+                {"$set": challenge_updates},
+            )
         agent = self._public_agent(doc)
         self.record_agent_event(
             agent["challenge_id"],
@@ -442,6 +484,37 @@ class ConstellationStorage:
             payload=agent,
         )
         return agent
+
+    def queue_recon_solve_continuation(self, agent_id: str) -> dict[str, Any] | None:
+        """Queue exactly one automatic solve turn after a valid recon handoff."""
+
+        now = utc_now()
+        doc = self.agents.find_one_and_update(
+            {
+                "_id": ObjectId(agent_id),
+                "role": {"$in": ["master", "solo"]},
+                "status": "completed",
+                "lifecycle_phase": "solving",
+                "solve_continuation_queued": {"$ne": True},
+            },
+            {"$set": {"solve_continuation_queued": True, "updated_at": now}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if doc is None:
+            return None
+        agent = self._public_agent(doc)
+        return self.queue_runtime_command(
+            str(agent["runtime_id"]),
+            command_type="prompt_agent",
+            challenge_id=str(agent["challenge_id"]),
+            agent_id=str(agent["id"]),
+            payload={
+                "body": (
+                    "Reconnaissance handoff is valid. Continue with the solving phase from the lifecycle files. "
+                    "Create WRITEUP.md if solved; otherwise append a complete checkpoint and wait for direction."
+                )
+            },
+        )
 
     def approve_agent(self, agent_id: str) -> dict[str, Any]:
         agent = self.get_agent(agent_id)
@@ -738,6 +811,8 @@ class ConstellationStorage:
             "challenge_type": doc.get("challenge_type", "single_agent"),
             "status": doc.get("status", "queued"),
             "runtime_id": doc.get("runtime_id"),
+            "provider": doc.get("provider", "codex"),
+            "lifecycle_phase": doc.get("lifecycle_phase", "reconnaissance"),
             "handoff_urls": list(doc.get("handoff_urls", [])),
             "settings": doc.get("settings", {}),
             "agent_count": self.agents.count_documents({"challenge_id": challenge_id}),
@@ -767,7 +842,9 @@ class ConstellationStorage:
             "role": doc.get("role", "worker"),
             "display_name": doc.get("display_name", "agent"),
             "status": doc.get("status", "queued"),
-            "codex_thread_id": doc.get("codex_thread_id"),
+            "provider": doc.get("provider", "codex"),
+            "provider_session_id": doc.get("provider_session_id"),
+            "lifecycle_phase": doc.get("lifecycle_phase", "reconnaissance"),
             "workspace_path": doc.get("workspace_path"),
             "model": doc.get("model"),
             "prompt": doc.get("prompt", ""),

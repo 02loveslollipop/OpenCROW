@@ -8,6 +8,7 @@
       <span>{{ challenge.slug }}</span>
       <span>{{ challenge.category }}</span>
       <span>{{ challenge.challenge_type }}</span>
+      <span>{{ challenge.provider }}</span>
       <span>{{ challenge.status }}</span>
       <span>{{ challenge.runtime_id or "unassigned" }}</span>
     </div>
@@ -49,7 +50,9 @@
           <span>{{ agent.role }}</span>
           <span>{{ agent.status }}</span>
           <span>{{ agent.runtime_id }}</span>
-          {% if agent.codex_thread_id %}<span>{{ agent.codex_thread_id }}</span>{% endif %}
+          <span>{{ agent.provider }}</span>
+          <span>{{ agent.lifecycle_phase }}</span>
+          {% if agent.provider_session_id %}<span>{{ agent.provider_session_id }}</span>{% endif %}
         </div>
         {% if agent.workspace_path %}
         <div class="subtle">{{ agent.workspace_path }}</div>
@@ -127,6 +130,16 @@
           {% for runtime in runtimes %}
           <option value="{{ runtime.runtime_id }}">{{ runtime.display_name }} · {{ runtime.status }}</option>
           {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Provider</span>
+        <select name="provider">
+          <option value="">Challenge default ({{ challenge.provider }})</option>
+          <option value="codex">Codex</option>
+          <option value="opencode">OpenCode</option>
+          <option value="claude">Claude Code</option>
+          <option value="antigravity">Antigravity</option>
         </select>
       </label>
       <label>

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "opencrow-lifecycle": {
+      "command": "opencrow-lifecycle-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

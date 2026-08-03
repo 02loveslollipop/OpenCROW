@@ -1,0 +1,41 @@
+{
+  "schema_version": 2,
+  "platforms": {
+    "apt": {
+      "base": ["python3", "python3-venv", "curl", "ca-certificates", "unzip"],
+      "utility": ["jq", "xxd", "tmux", "screen", "ripgrep", "fzf"],
+      "network": ["nmap", "tcpdump", "netcat-openbsd", "socat", "tshark"],
+      "reversing": ["gdb", "binutils", "strace", "ltrace", "radare2"],
+      "pwn": ["gdb", "patchelf", "qemu-user"],
+      "web": ["sqlmap", "gobuster", "ffuf", "dirb", "wfuzz"],
+      "forensics": ["exiftool", "foremost", "binwalk"],
+      "stego": ["steghide"],
+      "crypto": ["hashcat", "john"],
+      "tools": {"burpsuite": "burpsuite", "zaproxy": "zaproxy", "autopsy": "autopsy", "openstego": "openstego", "steghsolve": "steghsolve", "ghidra-gui": "ghidra"}
+    },
+    "dnf": {
+      "base": ["python3", "python3-pip", "curl", "ca-certificates", "unzip"],
+      "utility": ["jq", "vim-common", "tmux", "screen", "ripgrep", "fzf"],
+      "network": ["nmap", "tcpdump", "nmap-ncat", "socat", "wireshark-cli"],
+      "reversing": ["gdb", "binutils", "strace", "ltrace", "radare2"],
+      "pwn": ["gdb", "patchelf", "qemu-user"],
+      "web": ["sqlmap", "gobuster"],
+      "forensics": ["perl-Image-ExifTool", "foremost"],
+      "stego": ["steghide"],
+      "crypto": ["hashcat", "john"],
+      "tools": {"burpsuite": "burpsuite", "zaproxy": "zaproxy", "autopsy": "autopsy", "openstego": "openstego", "steghsolve": "steghsolve", "ghidra-gui": "ghidra"}
+    },
+    "pacman": {
+      "base": ["python", "curl", "ca-certificates", "unzip"],
+      "utility": ["jq", "tinyxxd", "tmux", "screen", "ripgrep", "fzf"],
+      "network": ["nmap", "tcpdump", "openbsd-netcat", "socat", "wireshark-cli"],
+      "reversing": ["gdb", "binutils", "strace", "ltrace", "radare2"],
+      "pwn": ["gdb", "patchelf", "qemu-user"],
+      "web": ["sqlmap", "gobuster", "ffuf", "dirb", "wfuzz"],
+      "forensics": ["perl-image-exiftool", "foremost", "binwalk"],
+      "stego": ["steghide"],
+      "crypto": ["hashcat", "john"],
+      "tools": {"burpsuite": "burpsuite", "zaproxy": "zaproxy", "autopsy": "autopsy", "openstego": "openstego", "steghsolve": "steghsolve", "ghidra-gui": "ghidra"}
+    }
+  }
+}

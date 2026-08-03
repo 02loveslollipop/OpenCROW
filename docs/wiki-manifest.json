@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "repository": "02loveslollipop/OpenCROW",
+  "pages": [
+    {
+      "title": "Home",
+      "slug": "Home",
+      "source": "README.md",
+      "group": "Start here",
+      "order": 0,
+      "redirects": ["Overview"],
+      "public": true
+    },
+    {
+      "title": "Quick start",
+      "slug": "Quick-Start",
+      "source": "docs/user/quick-start.md",
+      "group": "Start here",
+      "order": 10,
+      "redirects": ["Getting-Started"],
+      "public": true
+    },
+    {
+      "title": "Installation",
+      "slug": "Installation",
+      "source": "docs/user/installation.md",
+      "group": "Using OpenCROW",
+      "order": 20,
+      "redirects": ["Install", "Installer"],
+      "public": true
+    },
+    {
+      "title": "Agent integrations",
+      "slug": "Agent-Integrations",
+      "source": "docs/user/agent-integrations.md",
+      "group": "Using OpenCROW",
+      "order": 30,
+      "redirects": ["Providers"],
+      "public": true
+    },
+    {
+      "title": "Challenge lifecycle",
+      "slug": "Challenge-Lifecycle",
+      "source": "docs/user/challenge-lifecycle.md",
+      "group": "Using OpenCROW",
+      "order": 40,
+      "redirects": ["Workflow"],
+      "public": true
+    },
+    {
+      "title": "Skills and MCP",
+      "slug": "Skills-and-MCP",
+      "source": "docs/user/skills-and-mcp.md",
+      "group": "Using OpenCROW",
+      "order": 50,
+      "redirects": ["Skills", "MCP-Servers"],
+      "public": true
+    },
+    {
+      "title": "Updates, rollback, and uninstall",
+      "slug": "Updates-Rollback-and-Uninstall",
+      "source": "docs/user/updates-and-uninstall.md",
+      "group": "Administration",
+      "order": 60,
+      "redirects": ["Updates", "Uninstall"],
+      "public": true
+    },
+    {
+      "title": "Troubleshooting",
+      "slug": "Troubleshooting",
+      "source": "docs/user/troubleshooting.md",
+      "group": "Administration",
+      "order": 70,
+      "redirects": [],
+      "public": true
+    },
+    {
+      "title": "Constellation deployment",
+      "slug": "Constellation-Deployment",
+      "source": "docs/operator/constellation.md",
+      "group": "Operators",
+      "order": 80,
+      "redirects": ["Constellation"],
+      "public": true
+    },
+    {
+      "title": "Security and permissions",
+      "slug": "Security-and-Permissions",
+      "source": "docs/operator/security.md",
+      "group": "Operators",
+      "order": 90,
+      "redirects": ["Security"],
+      "public": true
+    },
+    {
+      "title": "Provider compatibility",
+      "slug": "Provider-Compatibility",
+      "source": "docs/operator/provider-compatibility.md",
+      "group": "Operators",
+      "order": 100,
+      "redirects": ["Compatibility-Matrix"],
+      "public": true
+    },
+    {
+      "title": "Architecture",
+      "slug": "Architecture",
+      "source": "docs/contributor/architecture.md",
+      "group": "Contributors",
+      "order": 110,
+      "redirects": [],
+      "public": false
+    }
+  ]
+}
