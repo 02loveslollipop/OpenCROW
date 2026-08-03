@@ -132,7 +132,12 @@ def test_deselecting_provider_and_toolbox_removes_only_managed_entries(tmp_path:
     assert "opencrow-lifecycle-hook" not in json.dumps(cleaned)
 
 
-def test_invalid_provider_config_fails_before_managed_snapshot_changes(tmp_path: Path) -> None:
+def test_invalid_provider_config_fails_before_managed_snapshot_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_bin = tmp_path / "provider-bin"
+    _fake_provider(fake_bin)
+    monkeypatch.setenv("PATH", f"{fake_bin}:{os.environ['PATH']}")
     paths = paths_for(tmp_path)
     engine = StateEngine(paths)
     engine.install(source=REPOSITORY, mode="skills", agents=["codex"])
@@ -444,12 +449,28 @@ def test_interactive_back_returns_to_immediately_previous_screen(tmp_path: Path)
                     break
         assert marker in output, output.decode(errors="replace")
 
+    def read_until_any(markers: tuple[bytes, ...], timeout: float = 8.0) -> bytes:
+        import time
+
+        deadline = time.monotonic() + timeout
+        while not any(marker in output for marker in markers) and time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    output.extend(os.read(master, 65536))
+                except OSError:
+                    break
+        for marker in markers:
+            if marker in output:
+                return marker
+        raise AssertionError(output.decode(errors="replace"))
+
     try:
         read_until(b"1/6 Agent integrations")
         os.write(master, b" \r")  # select Codex, then confirm
         read_until(b"2/6 Optionally install selected missing agent CLIs")
         os.write(master, b"\r")  # leave optional CLI install unchecked
-        read_until(b"3/6 Miniconda")
+        read_until_any((b"3/6 Miniconda", b"4/6 Toolbox bundles"))
         agent_screen_count = output.count(b"1/6 Agent integrations")
         os.write(master, b"b")
         first = output.count(b"2/6 Optionally install selected missing agent CLIs")
