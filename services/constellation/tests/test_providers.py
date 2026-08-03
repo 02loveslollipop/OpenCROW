@@ -40,6 +40,25 @@ def test_provider_commands_use_native_full_auto_and_resume(tmp_path: Path) -> No
     assert "--dangerously-skip-permissions" in command
 
 
+def test_opencode_process_adapter_streams_json_and_native_session_id(tmp_path: Path) -> None:
+    executable = tmp_path / "opencode-fixture"
+    executable.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' '{\"type\":\"session\",\"session_id\":\"oc-native\"}'\n"
+        "printf '%s\\n' '{\"type\":\"result\",\"text\":\"done\"}'\n"
+    )
+    executable.chmod(0o755)
+    adapter = OpenCodeAdapter(command=str(executable))
+    turn = adapter.start(prompt="solve", workspace=tmp_path)
+    events = list(turn.stream())
+    assert [event["type"] for event in events] == ["session", "result"]
+    assert adapter.extract_session_id(events[0]) == "oc-native"
+    resume = adapter.resume_command(
+        session_id="oc-native", prompt="continue", workspace=tmp_path, model=None
+    )
+    assert resume[resume.index("--session") + 1] == "oc-native"
+
+
 @pytest.mark.parametrize(
     ("event", "expected"),
     [
