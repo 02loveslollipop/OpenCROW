@@ -27,7 +27,7 @@
     },
     "pacman": {
       "base": ["python", "curl", "ca-certificates", "unzip"],
-      "utility": ["jq", "xxd", "tmux", "screen", "ripgrep", "fzf"],
+      "utility": ["jq", "tinyxxd", "tmux", "screen", "ripgrep", "fzf"],
       "network": ["nmap", "tcpdump", "openbsd-netcat", "socat", "wireshark-cli"],
       "reversing": ["gdb", "binutils", "strace", "ltrace", "radare2"],
       "pwn": ["gdb", "patchelf", "qemu-user"],
