@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from . import __version__
 from .engine import CANONICAL_DOCUMENTS, LifecycleError, WorkflowEngine
 
 
@@ -159,7 +160,7 @@ class StdioServer:
                 result: JSON = {
                     "protocolVersion": self.protocol,
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "opencrow-lifecycle-mcp", "version": "2.0.0"},
+                    "serverInfo": {"name": "opencrow-lifecycle-mcp", "version": __version__},
                 }
             elif method == "ping":
                 result = {}

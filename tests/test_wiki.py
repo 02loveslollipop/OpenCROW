@@ -85,3 +85,10 @@ def test_release_workflow_scopes_dedicated_wiki_ssh_credential() -> None:
     assert "WIKI_DEPLOY_TOKEN" not in workflow
     assert "git@github.com:02loveslollipop/OpenCROW.wiki.git" in workflow
     assert "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqq" in workflow
+
+
+def test_release_workflow_deploys_and_verifies_production_installer_pointers() -> None:
+    workflow = (ROOT / ".github/workflows/deploy-release.yml").read_text(encoding="utf-8")
+    assert "pages deploy dist-pages --project-name opencrow --branch main" in workflow
+    assert "https://opencrow.02labs.me/$name?release=$GITHUB_REF_NAME" in workflow
+    assert 'cmp -s "dist-pages/$name" "$downloaded"' in workflow

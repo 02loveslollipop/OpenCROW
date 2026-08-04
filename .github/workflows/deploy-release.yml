@@ -119,4 +119,30 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist-pages --project-name opencrow --branch release
+          # The opencrow Pages project's production branch is main. The files
+          # are still built from and validated against the stable release tag.
+          command: pages deploy dist-pages --project-name opencrow --branch main
+
+      - name: Verify public stable installer pointers
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_pointer() {
+            local name="$1"
+            local downloaded="$RUNNER_TEMP/opencrow-live-$name"
+            local attempt
+            for attempt in {1..12}; do
+              if curl -fsSL \
+                "https://opencrow.02labs.me/$name?release=$GITHUB_REF_NAME&attempt=$attempt" \
+                -o "$downloaded" && cmp -s "dist-pages/$name" "$downloaded"; then
+                return 0
+              fi
+              sleep 5
+            done
+            echo "::error file=$name::Cloudflare stable pointer does not match the tagged release" >&2
+            return 1
+          }
+
+          for name in install.sh skills.sh release-manifest.json release-checksums.txt; do
+            verify_pointer "$name"
+          done
