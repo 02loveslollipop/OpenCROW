@@ -26,5 +26,5 @@ def test_release_version_is_consistent(monkeypatch) -> None:
     assert response is not None
     mcp_version = response["result"]["serverInfo"]["version"]
 
-    assert expected == "2.0.1"
+    assert expected == "2.1.0"
     assert {opencrow_manager.VERSION, __version__, mcp_version, build_version, wiki_version} == {expected}
