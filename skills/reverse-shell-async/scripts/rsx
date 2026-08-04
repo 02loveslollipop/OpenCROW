@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  listen|send|read|status|stop) ;;
+  *)
+    printf '%s\n' "usage: rsx <listen|send|read|status|stop> [options]" >&2
+    printf '%s\n' "rsx is listener-only and does not generate callback payloads." >&2
+    exit 2
+    ;;
+esac
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND="$SCRIPT_DIR/../../netcat-async/scripts/nc_async_session.py"
+
+if [[ ! -f "$BACKEND" ]]; then
+  printf 'error: shared async TCP backend is missing: %s\n' "$BACKEND" >&2
+  exit 127
+fi
+
+if [[ -n "${OPENCROW_PYTHON:-}" && -x "$OPENCROW_PYTHON" ]]; then
+  exec "$OPENCROW_PYTHON" "$BACKEND" "$@"
+fi
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$BACKEND" "$@"
+fi
+
+printf '%s\n' "error: Python 3 is required; set OPENCROW_PYTHON to a usable interpreter." >&2
+exit 127

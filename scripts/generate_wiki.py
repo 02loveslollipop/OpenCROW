@@ -120,7 +120,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--output", type=Path, default=ROOT / "dist" / "wiki")
-    parser.add_argument("--version", default="2.0.1")
+    parser.add_argument("--version", default="2.1.0")
     parser.add_argument("--release-tag")
     parser.add_argument("--source-sha")
     return parser.parse_args()
