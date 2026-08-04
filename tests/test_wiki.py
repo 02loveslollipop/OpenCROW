@@ -77,3 +77,11 @@ def test_wiki_publish_is_idempotent_and_failure_preserves_remote(tmp_path: Path)
     assert first["changed"] is True
     assert second["changed"] is False
     assert second["commit"] == first["commit"]
+
+
+def test_release_workflow_scopes_dedicated_wiki_ssh_credential() -> None:
+    workflow = (ROOT / ".github/workflows/deploy-release.yml").read_text(encoding="utf-8")
+    assert "WIKI_DEPLOY_SSH_KEY: ${{ secrets.WIKI_DEPLOY_SSH_KEY }}" in workflow
+    assert "WIKI_DEPLOY_TOKEN" not in workflow
+    assert "git@github.com:02loveslollipop/OpenCROW.wiki.git" in workflow
+    assert "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqq" in workflow
