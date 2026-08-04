@@ -30,13 +30,8 @@ jobs:
           printf '%s/.local/bin\n' "$HOME" >> "$GITHUB_PATH"
       - name: Verify discovery, native formats, integrations, and lifecycle registration
         run: |
-          codex --version
-          opencode --version
-          claude --version
-          agy --version
-          bash installer/skills.sh --agents codex,opencode,claude,antigravity --yes
-          "$HOME/.local/bin/opencrow" integrations list
-          "$HOME/.local/bin/opencrow" doctor
+          python scripts/build_releases.py --allow-development-placeholders
+          bash scripts/test_provider_runtime_skills.sh dist/opencrow-skills.zip
           pytest -q packages/lifecycle/tests packages/mcp/tests installer/tests services/constellation/tests
       - name: Optional authenticated minimal turns
         if: ${{ env.PROVIDER_SMOKE_ENABLED == 'true' }}
