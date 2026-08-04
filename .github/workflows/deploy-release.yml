@@ -29,6 +29,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
       - name: Validate stable annotated tag on release branch
         shell: bash
         run: |
@@ -77,6 +82,15 @@ jobs:
             --portable-python-arm64 /tmp/python-arm64.tar.gz \
             --require-release-ready
           git diff --exit-code
+
+      - name: Install current provider CLIs through vendor-owned channels
+        run: |
+          npm install --global @openai/codex opencode-ai @anthropic-ai/claude-code
+          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          printf '%s/.local/bin\n' "$HOME" >> "$GITHUB_PATH"
+
+      - name: Test packaged skills on every trusted provider runtime
+        run: bash scripts/test_provider_runtime_skills.sh dist/opencrow-skills.zip
 
       - name: Create draft GitHub Release and upload assets
         shell: bash
