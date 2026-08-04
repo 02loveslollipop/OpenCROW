@@ -4,7 +4,7 @@ OpenCROW only applies updates through explicit commands:
 
 ```bash
 opencrow update
-opencrow update --version 2.0.1
+opencrow update --version 2.1.0
 opencrow update --bundle ./opencrow-full.zip
 opencrow rollback
 ```
