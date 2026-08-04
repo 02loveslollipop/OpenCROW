@@ -16,9 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      WIKI_DEPLOY_TOKEN: ${{ secrets.WIKI_DEPLOY_TOKEN }}
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PORTABLE_X86_URL: ${{ vars.PORTABLE_PYTHON_X86_URL }}
       PORTABLE_X86_SHA256: ${{ vars.PORTABLE_PYTHON_X86_SHA256 }}
       PORTABLE_ARM64_URL: ${{ vars.PORTABLE_PYTHON_ARM64_URL }}
@@ -93,12 +90,24 @@ jobs:
 
       - name: Synchronize generated Wiki using dedicated credential
         shell: bash
+        env:
+          WIKI_DEPLOY_SSH_KEY: ${{ secrets.WIKI_DEPLOY_SSH_KEY }}
         run: |
           set -euo pipefail
-          : "${WIKI_DEPLOY_TOKEN:?WIKI_DEPLOY_TOKEN is required}"
+          : "${WIKI_DEPLOY_SSH_KEY:?WIKI_DEPLOY_SSH_KEY is required}"
+          WIKI_SSH_DIR="$RUNNER_TEMP/opencrow-wiki-ssh"
+          WIKI_KEY_PATH="$WIKI_SSH_DIR/id_ed25519"
+          WIKI_KNOWN_HOSTS="$WIKI_SSH_DIR/known_hosts"
+          install -d -m 0700 "$WIKI_SSH_DIR"
+          printf '%s\n' "$WIKI_DEPLOY_SSH_KEY" > "$WIKI_KEY_PATH"
+          chmod 0600 "$WIKI_KEY_PATH"
+          printf '%s\n' \
+            'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+            > "$WIKI_KNOWN_HOSTS"
+          export GIT_SSH_COMMAND="ssh -i $WIKI_KEY_PATH -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$WIKI_KNOWN_HOSTS"
           python scripts/publish_wiki.py \
             --generated dist/wiki \
-            --repository "https://x-access-token:${WIKI_DEPLOY_TOKEN}@github.com/02loveslollipop/OpenCROW.wiki.git" \
+            --repository "git@github.com:02loveslollipop/OpenCROW.wiki.git" \
             --version "$GITHUB_REF_NAME" \
             --source-sha "$GITHUB_SHA"
 
