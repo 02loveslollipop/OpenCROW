@@ -2,7 +2,7 @@
 
 ## Skills-only product
 
-`skills.sh` is rootless. It installs universal skills into selected detected agents, provider hook adapters, lifecycle MCP, a tiny helper environment, and `opencrow`. It never installs `opencrow-init`, Miniconda, CTF/Sage environments, domain MCP servers, OS toolboxes, Constellation, or missing agent CLIs.
+`skills.sh` is rootless. It installs universal skills into selected detected agents, provider hook adapters, lifecycle MCP, a tiny helper environment, the `opencrow` management command, and the listener-only `rsx` skill helper. It never installs `opencrow-init`, Miniconda, CTF/Sage environments, domain MCP servers, OS toolboxes, Constellation, or missing agent CLIs.
 
 ```bash
 bash skills.sh --agents codex,opencode --dry-run

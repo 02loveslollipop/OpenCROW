@@ -12,10 +12,11 @@ This document defines the human-facing naming convention for OpenCROW skills out
 
 - `minecraft-async` -> `OpenCROW I/O - Minecraft Async`
 - `netcat-async` -> `OpenCROW I/O - Netcat Async`
+- `reverse-shell-async` -> `OpenCROW I/O - Reverse Shell Async`
 - `ssh-async` -> `OpenCROW I/O - SSH Async`
 - `sagemath` -> `OpenCROW Runner - SageMath`
 
 ## Notes
 
 - These names are display names and documentation labels.
-- Existing skill references such as `$netcat-async`, `$ssh-async`, and `$sagemath` remain valid.
+- Existing skill references such as `$netcat-async`, `$reverse-shell-async`, `$ssh-async`, and `$sagemath` remain valid.

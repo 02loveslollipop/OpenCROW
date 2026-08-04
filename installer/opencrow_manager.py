@@ -28,7 +28,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 PROVIDERS = ("codex", "opencode", "claude", "antigravity")
 COMMANDS = {"codex": "codex", "opencode": "opencode", "claude": "claude", "antigravity": "agy"}
 SKILLS_DIRS = {
@@ -449,6 +449,26 @@ class StateEngine:
         os.chmod(target, 0o755)
         managed.append(str(target))
 
+    def _write_rsx_launcher(self, managed: list[str]) -> None:
+        target = self.paths.bin / "rsx"
+        backend = self.paths.current / "skills" / "netcat-async" / "scripts" / "nc_async_session.py"
+        body = (
+            "#!/bin/sh\nset -eu\n"
+            'case "${1:-}" in\n'
+            "  listen|send|read|status|stop) ;;\n"
+            "  *)\n"
+            "    echo 'usage: rsx <listen|send|read|status|stop> [options]' >&2\n"
+            "    echo 'rsx is listener-only and does not generate callback payloads.' >&2\n"
+            "    exit 2\n"
+            "    ;;\n"
+            "esac\n"
+            + self._runtime_python_shell()
+            + f'exec "$OPENCROW_RUNTIME_PYTHON" {shlex_quote(str(backend))} "$@"\n'
+        )
+        atomic_text(target, body, mode=0o755)
+        os.chmod(target, 0o755)
+        managed.append(str(target))
+
     def _install_launchers(self, mode: str, toolboxes: list[str]) -> list[str]:
         self.paths.bin.mkdir(parents=True, exist_ok=True)
         managed: list[str] = []
@@ -456,6 +476,7 @@ class StateEngine:
         self._write_launcher("opencrow", str(manager), managed)
         self._write_launcher("opencrow-lifecycle-mcp", "module:opencrow_lifecycle.mcp_server", managed)
         self._write_launcher("opencrow-lifecycle-hook", "module:opencrow_lifecycle.hooks", managed)
+        self._write_rsx_launcher(managed)
         if mode == "full":
             self._write_launcher("opencrow-init", "module:opencrow_lifecycle.init_cli", managed)
             server_names = {
@@ -656,7 +677,7 @@ class StateEngine:
                     continue
                 if "opencrow-lifecycle" not in content:
                     issues.append(f"{provider} lifecycle entry is missing from {target}")
-        for launcher in ("opencrow", "opencrow-lifecycle-mcp", "opencrow-lifecycle-hook"):
+        for launcher in ("opencrow", "opencrow-lifecycle-mcp", "opencrow-lifecycle-hook", "rsx"):
             if not os.access(self.paths.bin / launcher, os.X_OK):
                 issues.append(f"managed launcher is not executable: {launcher}")
         if issues:

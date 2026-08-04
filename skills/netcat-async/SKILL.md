@@ -16,6 +16,7 @@ Prefer the `opencrow-netcat-mcp` server for session lifecycle, reads, and writes
 - Use `toolbox_info`, `toolbox_verify`, and `toolbox_capabilities` first.
 - Use the generic session tools:
   - `session_start`
+  - `session_listen`
   - `session_send`
   - `session_read`
   - `session_status`
@@ -26,7 +27,7 @@ Use `scripts/ncx` to manage long-lived TCP sessions instead of one-shot `nc` inv
 
 ## Workflow
 
-1. Start a named session.
+1. Start a named outbound session, or listen for one inbound connection.
 2. Send one or more payloads while the daemon keeps receiving output asynchronously.
 3. Read logs (`tail` for recent data, `follow` for streaming).
 4. Stop the session when done.
@@ -37,8 +38,14 @@ Use `scripts/ncx` to manage long-lived TCP sessions instead of one-shot `nc` inv
 # Start session
 scripts/ncx start --name demo --host 127.0.0.1 --port 9001
 
+# Listen on loopback for one inbound connection (port 0 selects a free port)
+scripts/ncx listen --name inbound --port 0
+
 # Send text (append newline for line-oriented protocols)
 scripts/ncx send --name demo --data 'ping' --newline
+
+# Send exact bytes using hex or strict base64
+scripts/ncx send --name demo --hex '00 03 ff'
 
 # Read latest output
 scripts/ncx read --name demo --tail 40
@@ -57,6 +64,7 @@ scripts/ncx stop --name demo
 
 - Use one session per target/service flow (`--name` scoped per host+port interaction).
 - Prefer `--newline` for interactive text protocols.
+- Non-loopback listeners require `--allow-remote`; restrict known peers with `--expected-peer`.
 - Read with `--tail` before `--follow` to avoid missing context.
 - Stop sessions explicitly to avoid stale daemons.
 - If `status` reports `running: false`, inspect `daemon.log` and restart.

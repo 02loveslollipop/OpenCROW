@@ -7,8 +7,10 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -93,6 +95,122 @@ def verify_mcp(bin_dir: Path, workspace: Path, environment: dict[str, str], expe
         raise AssertionError(f"Unexpected installed workflow phase: {status.get('phase')}")
 
 
+def verify_reverse_shell_skill(
+    bin_dir: Path,
+    runtime_root: Path,
+    provider: str,
+    environment: dict[str, str],
+) -> None:
+    rsx = bin_dir / "rsx"
+    if not rsx.is_file():
+        raise AssertionError("Skills install is missing the rsx launcher")
+    session_environment = environment.copy()
+    session_environment["OPENCROW_NC_ASYNC_DIR"] = str(runtime_root / "rsx-sessions")
+    name = f"release-{provider}"
+
+    forbidden = subprocess.run(
+        [str(rsx), "start"],
+        text=True,
+        capture_output=True,
+        env=session_environment,
+        check=False,
+    )
+    if forbidden.returncode != 2 or "listener-only" not in forbidden.stderr:
+        raise AssertionError(f"rsx exposed a forbidden outbound operation: {forbidden}")
+
+    client: socket.socket | None = None
+    try:
+        listener = subprocess.run(
+            [
+                str(rsx),
+                "listen",
+                "--name",
+                name,
+                "--port",
+                "0",
+                "--expected-peer",
+                "127.0.0.0/8",
+                "--accept-timeout",
+                "15",
+            ],
+            text=True,
+            capture_output=True,
+            env=session_environment,
+            check=False,
+            timeout=10,
+        )
+        if listener.returncode != 0:
+            raise AssertionError(f"rsx listener failed: {listener.stdout}\n{listener.stderr}")
+        status = run_json([str(rsx), "status", "--name", name], environment=session_environment)
+        if status.get("mode") != "listen" or status.get("state") != "listening":
+            raise AssertionError(f"rsx listener reported an unexpected initial state: {status}")
+
+        client = socket.create_connection(("127.0.0.1", int(status["port"])), timeout=3)
+        client.settimeout(3)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            status = run_json([str(rsx), "status", "--name", name], environment=session_environment)
+            if status.get("state") == "connected":
+                break
+            time.sleep(0.05)
+        if status.get("state") != "connected":
+            raise AssertionError(f"rsx listener did not accept the loopback peer: {status}")
+
+        sent = subprocess.run(
+            [str(rsx), "send", "--name", name, "--hex", "03 ff"],
+            text=True,
+            capture_output=True,
+            env=session_environment,
+            check=False,
+            timeout=10,
+        )
+        response = bytearray()
+        while len(response) < 2:
+            chunk = client.recv(2 - len(response))
+            if not chunk:
+                break
+            response.extend(chunk)
+        if sent.returncode != 0 or bytes(response) != b"\x03\xff":
+            raise AssertionError(f"rsx exact-byte send failed: {sent.stdout}\n{sent.stderr}")
+        client.sendall(b"provider-runtime\x00\xff\n")
+
+        raw_path = Path(session_environment["OPENCROW_NC_ASYNC_DIR"]) / name / "rx.raw"
+        deadline = time.monotonic() + 5
+        expected = b"provider-runtime\x00\xff\n"
+        while time.monotonic() < deadline and raw_path.read_bytes() != expected:
+            time.sleep(0.05)
+        if raw_path.read_bytes() != expected:
+            raise AssertionError("rsx did not preserve the provider runtime response in rx.raw")
+        deadline = time.monotonic() + 5
+        events: subprocess.CompletedProcess[str] | None = None
+        while time.monotonic() < deadline:
+            events = subprocess.run(
+                [str(rsx), "read", "--name", name],
+                text=True,
+                capture_output=True,
+                env=session_environment,
+                check=False,
+                timeout=10,
+            )
+            if "provider-runtime\\x00\\xff\\n" in events.stdout:
+                break
+            time.sleep(0.05)
+        assert events is not None
+        if events.returncode != 0 or "provider-runtime\\x00\\xff\\n" not in events.stdout:
+            raise AssertionError(f"rsx did not safely escape its event log: {events.stdout}\n{events.stderr}")
+    finally:
+        if client is not None:
+            client.close()
+        subprocess.run(
+            [str(rsx), "stop", "--name", name],
+            text=True,
+            capture_output=True,
+            env=session_environment,
+            check=False,
+            timeout=10,
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", required=True, choices=("codex", "opencode", "claude", "antigravity"))
@@ -165,7 +283,7 @@ def main() -> int:
         if not configured.is_file() or "opencrow-lifecycle" not in configured.read_text(encoding="utf-8"):
             raise AssertionError(f"Missing lifecycle registration for {args.provider}: {configured}")
 
-    for launcher in ("opencrow", "opencrow-lifecycle-hook", "opencrow-lifecycle-mcp"):
+    for launcher in ("opencrow", "opencrow-lifecycle-hook", "opencrow-lifecycle-mcp", "rsx"):
         if not (bin_dir / launcher).is_file():
             raise AssertionError(f"Skills install is missing launcher: {launcher}")
     if (bin_dir / "opencrow-init").exists():
@@ -197,6 +315,7 @@ def main() -> int:
     if "Current phase: reconnaissance" not in context:
         raise AssertionError(f"Installed lifecycle hook did not inject reconnaissance context: {hook}")
     verify_mcp(bin_dir, workspace, environment, expected_version)
+    verify_reverse_shell_skill(bin_dir, runtime_root, args.provider, environment)
 
     sys.path.insert(0, str(repository / "services" / "constellation"))
     from constellation.providers import adapter_for
