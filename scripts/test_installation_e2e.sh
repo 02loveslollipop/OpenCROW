@@ -23,6 +23,8 @@ export XDG_STATE_HOME="$TEST_ROOT/home/.local/state"
 export OPENCROW_PYTHON=$(command -v python3)
 mkdir -p "$OPENCROW_TARGET_HOME"
 
+bash "$ROOT_DIR/scripts/test_provider_runtime_skills.sh" "$SKILLS_BUNDLE" >/dev/null
+
 bash "$ROOT_DIR/installer/skills.sh" --bundle "$SKILLS_BUNDLE" --yes >/dev/null
 MANAGER=$OPENCROW_BIN_DIR/opencrow
 "$MANAGER" doctor >"$TEST_ROOT/doctor.json"
