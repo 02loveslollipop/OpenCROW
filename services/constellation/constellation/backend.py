@@ -750,7 +750,15 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
         self.runtime_id = ""
 
     def check_origin(self, origin: str) -> bool:
-        return True
+        header = self.request.headers.get("Authorization", "").strip()
+        if header.lower().startswith("bearer "):
+            return True
+        if not origin:
+            return True
+        allowed = self.app_state.settings.allowed_ws_origins
+        if not allowed:
+            return False
+        return _normalize_origin(origin) in allowed
 
     def select_subprotocol(self, subprotocols: list[str]) -> str | None:
         if "opencrow.runtime.v2" in subprotocols:
