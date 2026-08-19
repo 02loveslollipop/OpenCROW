@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import logging
 import secrets
 import threading
 from dataclasses import dataclass, field, replace
@@ -835,7 +836,8 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
                 self.write_message(json.dumps({"event_type": "agent_event", "event": event}))
                 return
         except Exception as exc:
-            self.write_message(json.dumps({"event_type": "error", "error": str(exc)}))
+            logging.error("Unhandled exception in RuntimeControlWebSocket", exc_info=True)
+            self.write_message(json.dumps({"event_type": "error", "error": "Internal server error"}))
             return
         self.write_message(json.dumps({"event_type": "error", "error": f"Unsupported action: {action}"}))
 
@@ -959,8 +961,9 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
                 if event["event_type"] == "topic_deleted":
                     break
         except Exception as exc:  # pragma: no cover - defensive websocket path
+            logging.error("Unhandled exception in ConstellationWebSocket watch_events", exc_info=True)
             if self.io_loop is not None:
-                self.io_loop.add_callback(self._emit_event, {"event_type": "error", "payload": {"error": str(exc)}})
+                self.io_loop.add_callback(self._emit_event, {"event_type": "error", "payload": {"error": "Internal server error"}})
 
     def _emit_event(self, event: dict[str, Any]) -> None:
         if self.ws_connection is None:
