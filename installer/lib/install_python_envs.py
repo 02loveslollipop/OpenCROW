@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,26 @@ def run(command: list[str]) -> tuple[bool, str]:
         print(process.stderr, file=sys.stderr, end="")
     detail = (process.stderr or process.stdout).strip().splitlines()
     return process.returncode == 0, detail[-1] if detail else f"exit {process.returncode}"
+
+
+def python_minor(executable: str | Path) -> str | None:
+    """Return an interpreter's major.minor version, or None when unusable."""
+    process = subprocess.run(
+        [str(executable), "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return process.stdout.strip() if process.returncode == 0 else None
+
+
+def matching_python(required: str) -> str | None:
+    """Find a system interpreter that satisfies the manifest's version pin."""
+    candidates = [sys.executable, shutil.which(f"python{required}"), shutil.which("python3")]
+    for candidate in dict.fromkeys(value for value in candidates if value):
+        if python_minor(candidate) == required:
+            return str(candidate)
+    return None
 
 
 def main() -> int:
@@ -49,13 +70,26 @@ def main() -> int:
     )
     prefix = env_root / "ctf"
     python = prefix / "bin" / "python"
+    required_python = str(manifest["ctf"]["python"])
+    if python.is_file() and python_minor(python) != required_python:
+        # This directory is exclusively OpenCROW-managed. Replace an environment
+        # left by an older installer rather than repeatedly using the wrong ABI.
+        shutil.rmtree(prefix)
     if not python.is_file():
         if conda:
             ok, detail = run(
-                [conda, "create", "--yes", "--prefix", str(prefix), f"python={manifest['ctf']['python']}", "pip"]
+                [conda, "create", "--yes", "--prefix", str(prefix), f"python={required_python}", "pip"]
             )
         else:
-            ok, detail = run([sys.executable, "-m", "venv", str(prefix)])
+            interpreter = matching_python(required_python)
+            if interpreter:
+                ok, detail = run([interpreter, "-m", "venv", str(prefix)])
+            else:
+                ok = False
+                detail = (
+                    f"Python {required_python} is required (running Python {python_minor(sys.executable) or 'unknown'}); "
+                    "rerun the full installer with --miniconda"
+                )
         if not ok:
             result["unresolved"].append(f"ctf environment: {detail}")  # type: ignore[union-attr]
     if python.is_file():

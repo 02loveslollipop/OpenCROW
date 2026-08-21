@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from lib.install_python_envs import matching_python, python_minor
+
 from opencrow_manager import (
     InstallError,
     Paths,
@@ -544,6 +546,19 @@ def test_managed_ctf_environment_is_created_under_opencrow_data(tmp_path: Path) 
     assert process.returncode == 0, process.stderr
     assert json.loads(process.stdout)["installed"] == ["ctf"]
     assert (data_root / "envs/ctf/bin/python").is_file()
+
+
+def test_managed_venv_requires_the_manifest_python() -> None:
+    required = python_minor(sys.executable)
+    assert required is not None
+    assert matching_python(required) == sys.executable
+    assert matching_python("0.0") is None
+
+
+def test_apt_pwn_toolboxes_include_native_python_build_tools() -> None:
+    packages = json.loads((REPOSITORY / "installer/platforms/packages.json").read_text())["platforms"]["apt"]
+    for toolbox in ("reversing", "pwn"):
+        assert {"cmake", "build-essential"} <= set(packages[toolbox])
 
 
 def test_remote_latest_update_verifies_release_and_embedded_checksums(
