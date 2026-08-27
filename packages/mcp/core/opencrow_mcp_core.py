@@ -574,10 +574,15 @@ class StdioMCPServer:
         stdout = sys.stdout.buffer
 
         while True:
-            request = self._read_message(stdin)
-            if request is None:
-                return 0
-            response = self._handle_message(request)
+            try:
+                request = self._read_message(stdin)
+                if request is None:
+                    return 0
+                response = self._handle_message(request)
+            except json.JSONDecodeError as exc:
+                response = self._error(None, -32700, f"Parse error: {exc}")
+            except Exception as exc:  # never crash the serve loop on malformed input
+                response = self._error(None, -32603, f"Unhandled exception: {exc}")
             if response is None:
                 continue
             self._write_message(stdout, response)
@@ -585,7 +590,9 @@ class StdioMCPServer:
     def _handle_message(self, request: JSON) -> JSON | None:
         method = request.get("method")
         request_id = request.get("id")
-        params = request.get("params", {})
+        params = request.get("params")
+        if not isinstance(params, dict):
+            params = {}
 
         if method == "notifications/initialized":
             return None
@@ -696,6 +703,8 @@ class StdioMCPServer:
 
             headers: dict[str, str] = {}
             decoded = stripped.decode("utf-8").strip()
+            if ":" not in decoded:
+                continue
             name, value = decoded.split(":", 1)
             headers[name.lower()] = value.strip()
 
@@ -708,6 +717,8 @@ class StdioMCPServer:
                 header_text = header_line.decode("utf-8").strip()
                 if not header_text:
                     break
+                if ":" not in header_text:
+                    continue
                 header_name, header_value = header_text.split(":", 1)
                 headers[header_name.lower()] = header_value.strip()
 

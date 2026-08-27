@@ -15,8 +15,8 @@ select_or_control() {
     status=$?
   fi
   if ((status == 2)); then
-    printf 'Back selected; returning to the first installer screen.\n' >&2
-    exec bash "$0" "${ORIGINAL_ARGS[@]}"
+    printf 'Back is not available on the first installer screen.\n' >&2
+    exit 1
   fi
   exit "$status"
 }

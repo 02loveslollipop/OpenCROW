@@ -11,10 +11,16 @@ import json
 import os
 import re
 import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None  # type: ignore[assignment]
 
 
 CANONICAL_DOCUMENTS = (
@@ -131,6 +137,27 @@ class WorkflowEngine:
         self.events_path = self.meta_dir / "events.jsonl"
         self.state_path = self.meta_dir / "state.json"
         self.history_dir = self.meta_dir / "history"
+        self._lock_depth = 0
+
+    @contextmanager
+    def _locked(self) -> Any:
+        """Serialize state-mutating sections across MCP and hook processes."""
+        if getattr(self, "_lock_depth", 0) or fcntl is None:
+            self._lock_depth += 1
+            try:
+                yield
+            finally:
+                self._lock_depth -= 1
+            return
+        self.meta_dir.mkdir(parents=True, exist_ok=True)
+        with (self.meta_dir / ".lock").open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            self._lock_depth = 1
+            try:
+                yield
+            finally:
+                self._lock_depth = 0
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def path(self, name: str) -> Path:
         if name not in CANONICAL_DOCUMENTS:
@@ -218,15 +245,16 @@ class WorkflowEngine:
         changes.append(".opencrow/config.json")
         if dry_run:
             return {"ok": True, "dry_run": True, "changes": changes, "phase": invocation_started_phase}
-        self.meta_dir.mkdir(parents=True, exist_ok=True)
-        if not challenge_path.exists() or not challenge_path.read_text(encoding="utf-8").strip():
-            _atomic_write(challenge_path, challenge_value)
-        if not self.path("FINDINGS.md").exists():
-            _atomic_write(self.path("FINDINGS.md"), FINDINGS_TEMPLATE)
-        if not self.path("CHANGELOG.md").exists():
-            _atomic_write(self.path("CHANGELOG.md"), CHANGELOG_TEMPLATE)
-        _atomic_write(self.config_path, json.dumps(config, indent=2, sort_keys=True) + "\n")
-        self.begin_invocation(phase=invocation_started_phase)
+        with self._locked():
+            self.meta_dir.mkdir(parents=True, exist_ok=True)
+            if not challenge_path.exists() or not challenge_path.read_text(encoding="utf-8").strip():
+                _atomic_write(challenge_path, challenge_value)
+            if not self.path("FINDINGS.md").exists():
+                _atomic_write(self.path("FINDINGS.md"), FINDINGS_TEMPLATE)
+            if not self.path("CHANGELOG.md").exists():
+                _atomic_write(self.path("CHANGELOG.md"), CHANGELOG_TEMPLATE)
+            _atomic_write(self.config_path, json.dumps(config, indent=2, sort_keys=True) + "\n")
+            self.begin_invocation(phase=invocation_started_phase)
         self.event("workspace_initialized", {"provider": provider, "model": model})
         return {"ok": True, "dry_run": False, "changes": changes, "phase": self.phase}
 
@@ -296,6 +324,11 @@ class WorkflowEngine:
     def reconcile_history(self) -> Validation:
         """Accept append-only direct edits and retain evidence of destructive edits."""
 
+        with self._locked():
+            return self._reconcile_history_locked()
+
+    def _reconcile_history_locked(self) -> Validation:
+
         state = self._read_state()
         accepted = state["accepted_documents"]
         rejected = state["rejected_documents"]
@@ -350,21 +383,22 @@ class WorkflowEngine:
         return Validation(not blockers, tuple(blockers), ())
 
     def begin_invocation(self, *, phase: str | None = None) -> Validation:
-        integrity = self.reconcile_history()
-        if integrity.blockers:
-            raise LifecycleError("\n".join(integrity.blockers))
-        state = self._read_state()
-        documents: dict[str, Any] = {}
-        for name in CANONICAL_DOCUMENTS:
-            exists, content = self._document_value(self.path(name))
-            documents[name] = {"exists": exists, "sha256": _digest(content)}
-        state["invocation"] = {
-            "started_at": utc_now(),
-            "phase": phase or self.phase,
-            "documents": documents,
-            "sequence": int(state.get("sequence", 0)),
-        }
-        self._write_state(state)
+        with self._locked():
+            integrity = self._reconcile_history_locked()
+            if integrity.blockers:
+                raise LifecycleError("\n".join(integrity.blockers))
+            state = self._read_state()
+            documents: dict[str, Any] = {}
+            for name in CANONICAL_DOCUMENTS:
+                exists, content = self._document_value(self.path(name))
+                documents[name] = {"exists": exists, "sha256": _digest(content)}
+            state["invocation"] = {
+                "started_at": utc_now(),
+                "phase": phase or self.phase,
+                "documents": documents,
+                "sequence": int(state.get("sequence", 0)),
+            }
+            self._write_state(state)
         return integrity
 
     def _changed_in_invocation(self, name: str) -> bool:
@@ -380,14 +414,16 @@ class WorkflowEngine:
         return int(record.get("sequence", 0)) if isinstance(record, dict) else 0
 
     def _prepare_managed_write(self) -> None:
-        integrity = self.reconcile_history()
-        if integrity.blockers:
-            raise LifecycleError("\n".join(integrity.blockers))
+        with self._locked():
+            integrity = self._reconcile_history_locked()
+            if integrity.blockers:
+                raise LifecycleError("\n".join(integrity.blockers))
 
     def _finish_managed_write(self) -> None:
-        integrity = self.reconcile_history()
-        if integrity.blockers:
-            raise LifecycleError("\n".join(integrity.blockers))
+        with self._locked():
+            integrity = self._reconcile_history_locked()
+            if integrity.blockers:
+                raise LifecycleError("\n".join(integrity.blockers))
 
     def verify_original_challenge(self) -> None:
         if not self.active:
@@ -463,7 +499,7 @@ class WorkflowEngine:
 
     def _next_id(self, prefix: str) -> str:
         highest = 0
-        pattern = re.compile(rf"\b{re.escape(prefix)}-(\d{{4,}})\b")
+        pattern = re.compile(rf"\b{re.escape(prefix)}-(\d{{1,}})\b")
         for name in ("FINDINGS.md", "CHANGELOG.md"):
             path = self.path(name)
             text = path.read_text(encoding="utf-8") if path.exists() else ""

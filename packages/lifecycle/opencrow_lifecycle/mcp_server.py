@@ -179,22 +179,45 @@ class StdioServer:
                 "id": request_id,
                 "result": {"content": [{"type": "text", "text": str(exc)}], "isError": True},
             }
+        except Exception as exc:  # never leave the client waiting on a response
+            return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(exc)}}
 
     def run(self) -> int:
         for line in sys.stdin:
             if not line.strip():
                 continue
+            request_id: Any = None
             try:
                 request = json.loads(line)
                 if not isinstance(request, dict):
                     raise ValueError("MCP requests must be JSON objects")
+                request_id = request.get("id")
                 response = self.dispatch(request)
                 if response is not None:
                     sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")
                     sys.stdout.flush()
+            except json.JSONDecodeError as exc:
+                sys.stderr.write(f"opencrow-lifecycle-mcp: {exc}\n")
+                sys.stderr.flush()
+                sys.stdout.write(
+                    json.dumps(
+                        {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32700, "message": f"Parse error: {exc}"}},
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
+                sys.stdout.flush()
             except Exception as exc:
                 sys.stderr.write(f"opencrow-lifecycle-mcp: {exc}\n")
                 sys.stderr.flush()
+                sys.stdout.write(
+                    json.dumps(
+                        {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32603, "message": str(exc)}},
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
+                sys.stdout.flush()
         return 0
 
 
