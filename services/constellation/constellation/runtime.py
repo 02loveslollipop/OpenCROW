@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -168,9 +169,10 @@ class RuntimeSocket:
                 raise RuntimeError(f"Unsupported runtime command: {command_type}")
             self._send({"action": "command_status", "command_id": command_id, "status": "completed"})
         except Exception as exc:
+            logging.error("Internal server error", exc_info=True)
             if agent_id:
-                self._send({"action": "agent_state", "agent_id": agent_id, "status": "failed", "metadata": {"error": str(exc)}})
-            self._send({"action": "command_status", "command_id": command_id, "status": "failed", "error": str(exc)})
+                self._send({"action": "agent_state", "agent_id": agent_id, "status": "failed", "metadata": {"error": "Internal server error"}})
+            self._send({"action": "command_status", "command_id": command_id, "status": "failed", "error": "Internal server error"})
 
     def _spawn_agent(self, command: dict[str, Any]) -> None:
         payload = command.get("payload") if isinstance(command.get("payload"), dict) else {}
@@ -267,6 +269,7 @@ class RuntimeSocket:
                     session_id=provider_session_id, prompt=prompt, workspace=workspace, model=model
                 )
             except Exception as exc:
+                logging.error("Internal server error", exc_info=True)
                 self._record_resume_failure(workspace, provider, provider_session_id, exc)
                 self._send(
                     {
@@ -274,7 +277,7 @@ class RuntimeSocket:
                         "challenge_id": challenge_id,
                         "agent_id": agent_id,
                         "event_type": "provider_session_resume_failed",
-                        "payload": {"provider": provider, "session_id": provider_session_id, "error": str(exc)},
+                        "payload": {"provider": provider, "session_id": provider_session_id, "error": "Internal server error"},
                     }
                 )
                 turn = adapter.start(prompt=prompt, workspace=workspace, model=model)
@@ -308,6 +311,7 @@ class RuntimeSocket:
             try:
                 consume(turn)
             except Exception as exc:
+                logging.error("Internal server error", exc_info=True)
                 if not resuming or not provider_session_id:
                     raise
                 failed_id = provider_session_id
@@ -318,7 +322,7 @@ class RuntimeSocket:
                         "challenge_id": challenge_id,
                         "agent_id": agent_id,
                         "event_type": "provider_session_resume_failed",
-                        "payload": {"provider": provider, "session_id": failed_id, "error": str(exc)},
+                        "payload": {"provider": provider, "session_id": failed_id, "error": "Internal server error"},
                     }
                 )
                 turn = adapter.start(prompt=prompt, workspace=workspace, model=model)
@@ -531,13 +535,14 @@ class RuntimeSocket:
                     response.close()
                     target.chmod(0o444)
         except Exception as exc:
+            logging.error("Internal server error", exc_info=True)
             self._send(
                 {
                     "action": "agent_event",
                     "challenge_id": challenge_id,
                     "agent_id": master_id,
                     "event_type": "slave_documents_materialization_failed",
-                    "payload": {"error": str(exc)},
+                    "payload": {"error": "Internal server error"},
                 }
             )
 
@@ -607,13 +612,14 @@ class RuntimeSocket:
                 }
             )
         except Exception as exc:
+            logging.error("Internal server error", exc_info=True)
             self._send(
                 {
                     "action": "agent_event",
                     "challenge_id": challenge_id,
                     "agent_id": agent_id,
                     "event_type": "lifecycle_artifacts_upload_failed",
-                    "payload": {"error": str(exc), "candidate_count": len(candidates)},
+                    "payload": {"error": "Internal server error", "candidate_count": len(candidates)},
                 }
             )
 
