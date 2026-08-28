@@ -124,6 +124,8 @@ class RuntimeSocket:
     def _on_message(self, _ws: websocket.WebSocketApp, message: str) -> None:
         try:
             payload = json.loads(message)
+            if not isinstance(payload, dict):
+                return
         except json.JSONDecodeError:
             return
         if payload.get("event_type") != "command":
