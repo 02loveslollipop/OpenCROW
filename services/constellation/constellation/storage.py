@@ -1215,7 +1215,7 @@ class ConstellationStorage:
             if isinstance(member_ids, list):
                 return member_id in member_ids
             return False
-        return True
+        return False
 
     def exchange_admin_token(self, topic: str, member_id: str, single_use_password: str) -> dict[str, Any]:
         member = self._member_doc(member_id)
