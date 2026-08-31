@@ -1,0 +1,4 @@
+## 2024-08-31 - [Prevent exception detail leakage in WebSocket Handlers]
+**Vulnerability:** Tornado WebSocket handlers were catching generic `Exception` objects and writing `str(exc)` back to the client in JSON error payloads. Additionally, there was a missing type check when parsing JSON dictionaries.
+**Learning:** Returning `str(exc)` directly from a catch-all block can inadvertently leak stack traces, database credentials, or internal paths to external clients over the WebSocket. Also, passing a JSON list instead of a dict could cause unhandled `AttributeError` exceptions when `.get()` is subsequently called, resulting in the connection being ungracefully dropped.
+**Prevention:** Always log exceptions internally using `logging.error("...", exc_info=True)` and return generic messages like `"Internal server error"` to the client. Validate JSON payload types using `isinstance(payload, dict)` before processing.
