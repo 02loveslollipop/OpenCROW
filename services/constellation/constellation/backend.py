@@ -770,6 +770,9 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
         except json.JSONDecodeError:
             self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload"}))
             return
+        if not isinstance(payload, dict):
+            self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload (must be an object)"}))
+            return
         action = str(payload.get("action", "")).strip()
         try:
             if action == "register":
@@ -835,7 +838,9 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
                 self.write_message(json.dumps({"event_type": "agent_event", "event": event}))
                 return
         except Exception as exc:
-            self.write_message(json.dumps({"event_type": "error", "error": str(exc)}))
+            import logging
+            logging.error("Internal error in RuntimeControlWebSocket", exc_info=True)
+            self.write_message(json.dumps({"event_type": "error", "error": "Internal server error"}))
             return
         self.write_message(json.dumps({"event_type": "error", "error": f"Unsupported action: {action}"}))
 
@@ -910,6 +915,9 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         except json.JSONDecodeError:
             self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload"}))
             return
+        if not isinstance(payload, dict):
+            self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload (must be an object)"}))
+            return
         action = str(payload.get("action", "ping")).strip()
         current_member = self.app_state.storage.get_member(self.member_id)
         if current_member is None:
@@ -959,8 +967,10 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
                 if event["event_type"] == "topic_deleted":
                     break
         except Exception as exc:  # pragma: no cover - defensive websocket path
+            import logging
+            logging.error("Internal error in _watch_events", exc_info=True)
             if self.io_loop is not None:
-                self.io_loop.add_callback(self._emit_event, {"event_type": "error", "payload": {"error": str(exc)}})
+                self.io_loop.add_callback(self._emit_event, {"event_type": "error", "payload": {"error": "Internal server error"}})
 
     def _emit_event(self, event: dict[str, Any]) -> None:
         if self.ws_connection is None:
