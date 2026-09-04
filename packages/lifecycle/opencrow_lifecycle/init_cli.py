@@ -76,6 +76,36 @@ def provider_command(
     raise LifecycleError(f"Unsupported provider: {provider}")
 
 
+def interactive_command(
+    provider: str,
+    *,
+    workspace: Path,
+    model: str | None,
+) -> list[str]:
+    """Interactive terminal (TUI) command for a provider in an initialized workspace."""
+    if provider == "codex":
+        command = ["codex", "-C", str(workspace)]
+        if model:
+            command.extend(["--model", model])
+        return command
+    if provider == "opencode":
+        command = ["opencode"]
+        if model:
+            command.extend(["--model", model])
+        return command
+    if provider == "claude":
+        command = ["claude"]
+        if model:
+            command.extend(["--model", model])
+        return command
+    if provider == "antigravity":
+        command = ["agy"]
+        if model:
+            command.extend(["--model", model])
+        return command
+    raise LifecycleError(f"Unsupported provider: {provider}")
+
+
 def _description(args: argparse.Namespace) -> str:
     challenge = Path(args.challenge_file).expanduser() if args.challenge_file else None
     if challenge:
@@ -103,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model")
     parser.add_argument("--unsafe", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Launch the provider interactive terminal (TUI) in the initialized workspace instead of a headless run.",
+    )
     parser.add_argument("--append-prompt", help="Additional instructions appended after the immutable mandate.")
     parser.add_argument("--no-launch", action="store_true", help=argparse.SUPPRESS)
     return parser
@@ -111,6 +146,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     try:
+        if args.interactive and args.unsafe:
+            raise LifecycleError("--interactive keeps native approvals: it cannot be combined with --unsafe.")
         description = _description(args)
         workspace = Path.cwd().resolve()
         engine = WorkflowEngine(workspace)
@@ -120,13 +157,16 @@ def main() -> int:
             model=args.model,
             dry_run=args.dry_run,
         )
-        command = provider_command(
-            args.provider,
-            prompt=prompt_text(args.append_prompt),
-            workspace=workspace,
-            model=args.model,
-            unsafe=args.unsafe,
-        )
+        if args.interactive:
+            command = interactive_command(args.provider, workspace=workspace, model=args.model)
+        else:
+            command = provider_command(
+                args.provider,
+                prompt=prompt_text(args.append_prompt),
+                workspace=workspace,
+                model=args.model,
+                unsafe=args.unsafe,
+            )
         if args.dry_run:
             print("Would initialize: " + ", ".join(result["changes"]))
             print("Would run: " + shlex.join(command))

@@ -8,7 +8,7 @@ import pytest
 from opencrow_lifecycle.engine import LifecycleError, WorkflowEngine
 from opencrow_lifecycle import hooks
 from opencrow_lifecycle.hooks import handle
-from opencrow_lifecycle.init_cli import provider_command
+from opencrow_lifecycle.init_cli import interactive_command, provider_command
 from opencrow_lifecycle.mcp_server import StdioServer, call_tool
 from opencrow_lifecycle.search_policy import is_target_writeup_search
 
@@ -265,3 +265,31 @@ def test_provider_commands_use_native_unsafe_flags(provider: str, binary: str, u
     assert safe[0] == binary
     assert unsafe_flag not in safe
     assert unsafe_flag in unsafe
+
+
+@pytest.mark.parametrize(
+    ("provider", "binary"),
+    [
+        ("codex", "codex"),
+        ("opencode", "opencode"),
+        ("claude", "claude"),
+        ("antigravity", "agy"),
+    ],
+)
+def test_interactive_commands_launch_provider_tui(provider: str, binary: str, tmp_path: Path) -> None:
+    plain = interactive_command(provider, workspace=tmp_path, model=None)
+    assert plain[0] == binary
+    assert "--auto" not in plain
+    assert "run" not in plain and "exec" not in plain
+    with_model = interactive_command(provider, workspace=tmp_path, model="test-model")
+    assert with_model[0] == binary
+    assert "test-model" in with_model
+
+
+def test_interactive_rejects_unsafe_combination(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    from opencrow_lifecycle import init_cli
+
+    monkeypatch.setattr(sys, "argv", ["opencrow-init", "opencode", "--interactive", "--unsafe"])
+    assert init_cli.main() == 2
