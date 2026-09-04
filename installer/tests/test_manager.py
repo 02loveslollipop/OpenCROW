@@ -801,3 +801,29 @@ def test_skills_shell_uses_verified_portable_python_when_venv_fails(
     helper = home / ".local/share/opencrow/helper/bin/python"
     assert helper.is_symlink()
     assert (home / ".local/bin/opencrow").is_file()
+
+
+def test_install_script_agents_csv_formatting() -> None:
+    """Verify that install.sh formats array expansions without trailing braces in CSV variables."""
+    process = subprocess.run(
+        [
+            "bash",
+            str(REPOSITORY / "installer/install.sh"),
+            "--agents",
+            "codex",
+            "--toolboxes",
+            "utility",
+            "--yes",
+            "--dry-run",
+        ],
+        cwd=REPOSITORY,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert process.returncode == 0, process.stderr
+    assert "Providers: codex\n" in process.stdout
+    assert "Toolboxes: utility\n" in process.stdout
+    assert "codex}" not in process.stdout
+    assert "utility}" not in process.stdout
+
