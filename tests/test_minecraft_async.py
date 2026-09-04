@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -52,6 +54,38 @@ def test_verify_identity_times_out_without_line(tmp_path: Path):
     (game_dir / "logs").mkdir(parents=True)
     with pytest.raises(mc.McError, match="No 'Setting user:'"):
         mc.cmd_verify_identity(_namespace(game_dir=str(game_dir), username="codextest", timeout=0.1))
+
+
+def test_wait_finds_line_split_across_polls(tmp_path: Path):
+    latest = tmp_path / "latest.log"
+    latest.write_text("[12:00:01] [Render thread/INFO]: Setting us", encoding="utf-8")
+
+    def append_rest():
+        time.sleep(0.2)
+        with latest.open("a", encoding="utf-8") as handle:
+            handle.write("er: codextest\n")
+
+    thread = threading.Thread(target=append_rest)
+    thread.start()
+    try:
+        assert mc.wait_for_identity(latest, 5.0) == "codextest"
+    finally:
+        thread.join(timeout=10)
+
+
+def test_wait_resets_on_log_rotation(tmp_path: Path):
+    latest = tmp_path / "latest.log"
+    latest.write_text("booting\n", encoding="utf-8")
+    assert mc.wait_for_identity(latest, 0.2) is None
+    latest.write_text("Setting user: codextest\n", encoding="utf-8")
+    assert mc.wait_for_identity(latest, 2.0) == "codextest"
+
+
+def test_wait_never_sleeps_past_deadline(tmp_path: Path):
+    latest = tmp_path / "missing.log"
+    start = time.monotonic()
+    assert mc.wait_for_identity(latest, 0.2) is None
+    assert time.monotonic() - start < 0.4
 
 
 def test_verify_identity_defaults_to_session_meta(tmp_path: Path, monkeypatch):
