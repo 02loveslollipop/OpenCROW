@@ -830,19 +830,39 @@ def username_from_log(text: str) -> str | None:
     return names[-1] if names else None
 
 
-def wait_for_identity(latest: Path, timeout: float) -> str | None:
+def wait_for_identity(latest: Path, timeout: float, poll: float = 0.5) -> str | None:
+    """Poll latest.log for the `Setting user:` line.
+
+    Reads only appended bytes (the log can grow to megabytes on long
+    sessions) and never sleeps past the deadline.
+    """
     deadline = time.monotonic() + max(0.0, timeout)
+    position = 0
+    pending = ""
     while True:
-        if latest.exists():
+        try:
+            size = latest.stat().st_size if latest.exists() else 0
+        except OSError:
+            size = 0
+        if size < position:
+            position, pending = 0, ""
+        if size > position:
             try:
-                observed = username_from_log(latest.read_text(encoding=ENCODING, errors="replace"))
+                with latest.open("r", encoding=ENCODING, errors="replace") as handle:
+                    handle.seek(position)
+                    chunk = handle.read()
+                    position = handle.tell()
             except OSError:
-                observed = None
-            if observed:
-                return observed
-        if time.monotonic() >= deadline:
+                chunk = ""
+            *lines, pending = (pending + chunk).split("\n")
+            for line in lines:
+                observed = username_from_log(line)
+                if observed:
+                    return observed
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             return None
-        time.sleep(0.5)
+        time.sleep(min(poll, remaining))
 
 
 def cmd_verify_identity(args: argparse.Namespace) -> int:
