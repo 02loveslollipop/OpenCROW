@@ -821,6 +821,49 @@ def cmd_join_world(args: argparse.Namespace) -> int:
     return cmd_launch(launch_args)
 
 
+SETTING_USER_RE = re.compile(r"(?m)^.*Setting user:\s+(?P<name>.+?)\s*$")
+
+
+def username_from_log(text: str) -> str | None:
+    """Return the profile name from the last `Setting user:` log line, if any."""
+    names = SETTING_USER_RE.findall(text)
+    return names[-1] if names else None
+
+
+def wait_for_identity(latest: Path, timeout: float) -> str | None:
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        if latest.exists():
+            try:
+                observed = username_from_log(latest.read_text(encoding=ENCODING, errors="replace"))
+            except OSError:
+                observed = None
+            if observed:
+                return observed
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.5)
+
+
+def cmd_verify_identity(args: argparse.Namespace) -> int:
+    game_dir = detect_game_dir(args.game_dir)
+    expected = (args.username or load_meta(args.session).get("username") or "Player").strip()
+    latest = game_dir / "logs" / "latest.log"
+    observed = wait_for_identity(latest, args.timeout)
+    if observed is None:
+        raise McError(
+            f"No 'Setting user:' line in {latest} after {args.timeout}s. "
+            "Is the managed session running and writing to this game directory?"
+        )
+    if observed != expected:
+        raise McError(
+            f"Game runs as '{observed}', expected '{expected}'. "
+            "Stop the session and relaunch; another client may be writing this log."
+        )
+    print(f"identity ok: {observed}")
+    return 0
+
+
 def open_log_file(path: Path):
     if not path.exists():
         raise McError(f"Log file not found: {path}")
@@ -957,6 +1000,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tail", type=int, default=80)
     p.add_argument("--follow", action="store_true")
     p.set_defaults(func=cmd_read_log)
+
+    p = sub.add_parser("verify-identity")
+    p.add_argument("--session", default="default")
+    p.add_argument("--game-dir")
+    p.add_argument("--username", default=None)
+    p.add_argument("--timeout", type=float, default=120.0)
+    p.set_defaults(func=cmd_verify_identity)
 
     return parser
 
