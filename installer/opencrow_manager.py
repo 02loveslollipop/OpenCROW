@@ -28,7 +28,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
-VERSION = "2.1.0"
+VERSION = "2.1.2"
 PROVIDERS = ("codex", "opencode", "claude", "antigravity")
 COMMANDS = {"codex": "codex", "opencode": "opencode", "claude": "claude", "antigravity": "agy"}
 SKILLS_DIRS = {
