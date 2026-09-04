@@ -501,6 +501,69 @@ def test_interactive_back_returns_to_immediately_previous_screen(tmp_path: Path)
         os.close(master)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="installer supports Linux PTYs")
+def test_selector_sigint_restores_terminal(tmp_path: Path) -> None:
+    """Ctrl-C inside the interactive menu must restore tty modes (I5)."""
+    import signal
+    import time
+
+    master, slave = pty.openpty()
+
+    def controlling_terminal() -> None:
+        os.setsid()
+        fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    driver = tmp_path / "menu.sh"
+    driver.write_text(
+        'source "$SELECTOR_LIB"\n'
+        'stty -g </dev/tty >"$OUT/before.txt"\n'
+        'select_many "Menu" "a" a b c\n'
+        'echo "rc=$?"\n'
+    )
+    environment = {
+        **os.environ,
+        "PATH": "/usr/bin:/bin",
+        "TERM": "xterm",
+        "SELECTOR_LIB": str(REPOSITORY / "installer/lib/selector.sh"),
+        "OUT": str(outdir),
+    }
+    process = subprocess.Popen(
+        ["/bin/bash", str(driver)],
+        env=environment,
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        preexec_fn=controlling_terminal,
+        close_fds=True,
+    )
+    os.close(slave)
+    output = bytearray()
+    try:
+        deadline = time.monotonic() + 8.0
+        while b"Up/Down navigate" not in output and time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.2)
+            if ready:
+                try:
+                    output.extend(os.read(master, 65536))
+                except OSError:
+                    break
+        assert b"Up/Down navigate" in output, output.decode(errors="replace")
+        process.send_signal(signal.SIGINT)
+        assert process.wait(timeout=5) in (-signal.SIGINT, 128 + signal.SIGINT)
+        before = (outdir / "before.txt").read_text().strip()
+        after = subprocess.run(
+            ["stty", "-g"], stdin=master, capture_output=True, text=True, check=False, timeout=10
+        ).stdout.strip()
+        assert before == after
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        os.close(master)
+
+
 def test_list_merge_is_additive_only_for_hook_groups() -> None:
     assert deep_merge(["old"], ["new"]) == ["new"]
     old = [{"hooks": [{"command": "mine"}]}]
