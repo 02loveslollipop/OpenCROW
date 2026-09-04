@@ -312,3 +312,8 @@ def test_interactive_rejects_unsafe_combination(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(sys, "argv", ["opencrow-init", "opencode", "--interactive", "--unsafe"])
     assert init_cli.main() == 2
+
+
+def test_interactive_command_rejects_unknown_provider(tmp_path: Path) -> None:
+    with pytest.raises(LifecycleError, match="Unsupported provider"):
+        interactive_command("unknown", workspace=tmp_path, model=None)
