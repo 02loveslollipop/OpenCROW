@@ -41,6 +41,31 @@ def matching_python(required: str) -> str | None:
     return None
 
 
+def ensure_conda_tos(conda: str) -> None:
+    """Best-effort acceptance of Anaconda channel Terms of Service.
+
+    Recent conda releases refuse non-interactive solves against the default
+    Anaconda channels until their ToS is accepted, which made managed prefix
+    creation fail on fresh machines. Older conda builds lack the ``tos``
+    plugin; their failures are ignored because nothing needs accepting.
+    """
+    subprocess.run(
+        [
+            conda,
+            "tos",
+            "accept",
+            "--override-channels",
+            "--channel",
+            "https://repo.anaconda.com/pkgs/main",
+            "--channel",
+            "https://repo.anaconda.com/pkgs/r",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--conda")
@@ -50,6 +75,8 @@ def main() -> int:
     args = parser.parse_args()
 
     conda = str(Path(args.conda).resolve()) if args.conda else None
+    if conda:
+        ensure_conda_tos(conda)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     selected = [value for value in args.toolboxes.split(",") if value]
     env_root = args.data_root / "envs"

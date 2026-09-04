@@ -480,20 +480,21 @@ class WorkflowEngine:
         return {"phase": self.phase, "documents": result, "max_bytes": max_bytes}
 
     def add_clarification(self, clarification: str, *, source: str, evidence: str) -> dict[str, Any]:
-        self._prepare_managed_write()
-        self.verify_original_challenge()
-        if not all(value.strip() for value in (clarification, source, evidence)):
-            raise LifecycleError("Clarification, source, and evidence are required.")
-        challenge_path = self.path("CHALLENGE.md")
-        entry = (
-            f"### {utc_now()}\n\n"
-            f"{clarification.strip()}\n\n"
-            f"- Source: {source.strip()}\n"
-            f"- Evidence: {evidence.strip()}\n"
-        )
-        _append(challenge_path, entry)
-        self.verify_original_challenge()
-        self._finish_managed_write()
+        with self._locked():
+            self._prepare_managed_write()
+            self.verify_original_challenge()
+            if not all(value.strip() for value in (clarification, source, evidence)):
+                raise LifecycleError("Clarification, source, and evidence are required.")
+            challenge_path = self.path("CHALLENGE.md")
+            entry = (
+                f"### {utc_now()}\n\n"
+                f"{clarification.strip()}\n\n"
+                f"- Source: {source.strip()}\n"
+                f"- Evidence: {evidence.strip()}\n"
+            )
+            _append(challenge_path, entry)
+            self.verify_original_challenge()
+            self._finish_managed_write()
         self.event("clarification_added", {"source": source, "evidence": evidence})
         return {"ok": True, "phase": self.phase}
 
@@ -518,26 +519,27 @@ class WorkflowEngine:
         status: str,
         next_action: str,
     ) -> dict[str, Any]:
-        self._prepare_managed_write()
-        values = (hypothesis, action, command, outcome, evidence, next_action)
-        if not all(str(value).strip() for value in values):
-            raise LifecycleError("Attempts require hypothesis, action, command/input, outcome, evidence, and next action.")
-        if status not in ATTEMPT_STATUSES:
-            raise LifecycleError(f"Attempt status must be one of: {', '.join(sorted(ATTEMPT_STATUSES))}")
-        attempt_id = self._next_id("A")
-        timestamp = utc_now()
-        entry = (
-            f"## {attempt_id} — {timestamp}\n\n"
-            f"- Status: `{status}`\n"
-            f"- Hypothesis: {hypothesis.strip()}\n"
-            f"- Action: {action.strip()}\n"
-            f"- Reproducible command/input: `{command.strip()}`\n"
-            f"- Outcome: {outcome.strip()}\n"
-            f"- Evidence: {evidence.strip()}\n"
-            f"- Next action: {next_action.strip()}\n"
-        )
-        _append(self.path("CHANGELOG.md"), entry)
-        self._finish_managed_write()
+        with self._locked():
+            self._prepare_managed_write()
+            values = (hypothesis, action, command, outcome, evidence, next_action)
+            if not all(str(value).strip() for value in values):
+                raise LifecycleError("Attempts require hypothesis, action, command/input, outcome, evidence, and next action.")
+            if status not in ATTEMPT_STATUSES:
+                raise LifecycleError(f"Attempt status must be one of: {', '.join(sorted(ATTEMPT_STATUSES))}")
+            attempt_id = self._next_id("A")
+            timestamp = utc_now()
+            entry = (
+                f"## {attempt_id} — {timestamp}\n\n"
+                f"- Status: `{status}`\n"
+                f"- Hypothesis: {hypothesis.strip()}\n"
+                f"- Action: {action.strip()}\n"
+                f"- Reproducible command/input: `{command.strip()}`\n"
+                f"- Outcome: {outcome.strip()}\n"
+                f"- Evidence: {evidence.strip()}\n"
+                f"- Next action: {next_action.strip()}\n"
+            )
+            _append(self.path("CHANGELOG.md"), entry)
+            self._finish_managed_write()
         self.event("attempt_recorded", {"id": attempt_id, "status": status})
         return {"ok": True, "attempt_id": attempt_id, "time": timestamp}
 
@@ -551,24 +553,25 @@ class WorkflowEngine:
         finding_id: str | None = None,
         supersedes: str | None = None,
     ) -> dict[str, Any]:
-        self._prepare_managed_write()
-        if status not in FINDING_STATUSES:
-            raise LifecycleError(f"Finding status must be one of: {', '.join(sorted(FINDING_STATUSES))}")
-        if not all(value.strip() for value in (title, finding, evidence)):
-            raise LifecycleError("Findings require a title, finding text, and evidence.")
-        if finding_id is None:
-            finding_id = self._next_id("F")
-        if not re.fullmatch(r"F-\d{4,}", finding_id):
-            raise LifecycleError("Finding IDs must use the stable form F-0001.")
-        entry = (
-            f"## {finding_id} — {title.strip()}\n\n"
-            f"- Recorded: {utc_now()}\n"
-            f"- Status: `{status}`\n"
-            + (f"- Supersedes: `{supersedes}`\n" if supersedes else "")
-            + f"- Evidence: {evidence.strip()}\n\n{finding.strip()}\n"
-        )
-        _append(self.path("FINDINGS.md"), entry)
-        self._finish_managed_write()
+        with self._locked():
+            self._prepare_managed_write()
+            if status not in FINDING_STATUSES:
+                raise LifecycleError(f"Finding status must be one of: {', '.join(sorted(FINDING_STATUSES))}")
+            if not all(value.strip() for value in (title, finding, evidence)):
+                raise LifecycleError("Findings require a title, finding text, and evidence.")
+            if finding_id is None:
+                finding_id = self._next_id("F")
+            if not re.fullmatch(r"F-\d{4,}", finding_id):
+                raise LifecycleError("Finding IDs must use the stable form F-0001.")
+            entry = (
+                f"## {finding_id} — {title.strip()}\n\n"
+                f"- Recorded: {utc_now()}\n"
+                f"- Status: `{status}`\n"
+                + (f"- Supersedes: `{supersedes}`\n" if supersedes else "")
+                + f"- Evidence: {evidence.strip()}\n\n{finding.strip()}\n"
+            )
+            _append(self.path("FINDINGS.md"), entry)
+            self._finish_managed_write()
         self.event("finding_recorded", {"id": finding_id, "status": status})
         return {"ok": True, "finding_id": finding_id, "status": status}
 
@@ -582,23 +585,24 @@ class WorkflowEngine:
         reproduce: str,
         next_actions: str,
     ) -> dict[str, Any]:
-        self._prepare_managed_write()
-        if not all(value.strip() for value in (summary, evidence, failures, artifacts, reproduce, next_actions)):
-            raise LifecycleError("Handoff requires summary, evidence, failures, artifacts, reproduction, and exact next actions.")
-        path = self.path("HANDOFF.md")
-        if not path.exists():
-            _atomic_write(path, "# Handoff\n\nAppend-only reconnaissance and solve checkpoints.\n")
-        entry = (
-            f"## Checkpoint — {utc_now()}\n\n"
-            f"### Summary\n\n{summary.strip()}\n\n"
-            f"### Evidence\n\n{evidence.strip()}\n\n"
-            f"### Failures\n\n{failures.strip()}\n\n"
-            f"### Artifacts\n\n{artifacts.strip()}\n\n"
-            f"### Reproduce\n\n```sh\n{reproduce.strip()}\n```\n\n"
-            f"### Exact next actions\n\n{next_actions.strip()}\n"
-        )
-        _append(path, entry)
-        self._finish_managed_write()
+        with self._locked():
+            self._prepare_managed_write()
+            if not all(value.strip() for value in (summary, evidence, failures, artifacts, reproduce, next_actions)):
+                raise LifecycleError("Handoff requires summary, evidence, failures, artifacts, reproduction, and exact next actions.")
+            path = self.path("HANDOFF.md")
+            if not path.exists():
+                _atomic_write(path, "# Handoff\n\nAppend-only reconnaissance and solve checkpoints.\n")
+            entry = (
+                f"## Checkpoint — {utc_now()}\n\n"
+                f"### Summary\n\n{summary.strip()}\n\n"
+                f"### Evidence\n\n{evidence.strip()}\n\n"
+                f"### Failures\n\n{failures.strip()}\n\n"
+                f"### Artifacts\n\n{artifacts.strip()}\n\n"
+                f"### Reproduce\n\n```sh\n{reproduce.strip()}\n```\n\n"
+                f"### Exact next actions\n\n{next_actions.strip()}\n"
+            )
+            _append(path, entry)
+            self._finish_managed_write()
         self.event("handoff_updated", {"phase_after": self.phase})
         return {"ok": True, "phase": self.phase}
 
@@ -613,23 +617,24 @@ class WorkflowEngine:
         flag: str | None = None,
         verification: str | None = None,
     ) -> dict[str, Any]:
-        self._prepare_managed_write()
-        if not all(value.strip() for value in (title, summary, solution, reproduce, evidence)):
-            raise LifecycleError("Writeup requires title, summary, solution, reproduction, and evidence.")
-        path = self.path("WRITEUP.md")
-        if not path.exists():
-            _atomic_write(path, "# Writeup\n\nVerified solution history.\n")
-        entry = (
-            f"## {title.strip()} — {utc_now()}\n\n"
-            f"### Summary\n\n{summary.strip()}\n\n"
-            f"### Solution\n\n{solution.strip()}\n\n"
-            f"### Reproduce\n\n```sh\n{reproduce.strip()}\n```\n\n"
-            f"### Evidence\n\n{evidence.strip()}\n\n"
-            + (f"### Flag\n\n`{flag.strip()}`\n\n" if flag and flag.strip() else "")
-            + (f"### Verification\n\n{verification.strip()}\n" if verification and verification.strip() else "")
-        )
-        _append(path, entry)
-        self._finish_managed_write()
+        with self._locked():
+            self._prepare_managed_write()
+            if not all(value.strip() for value in (title, summary, solution, reproduce, evidence)):
+                raise LifecycleError("Writeup requires title, summary, solution, reproduction, and evidence.")
+            path = self.path("WRITEUP.md")
+            if not path.exists():
+                _atomic_write(path, "# Writeup\n\nVerified solution history.\n")
+            entry = (
+                f"## {title.strip()} — {utc_now()}\n\n"
+                f"### Summary\n\n{summary.strip()}\n\n"
+                f"### Solution\n\n{solution.strip()}\n\n"
+                f"### Reproduce\n\n```sh\n{reproduce.strip()}\n```\n\n"
+                f"### Evidence\n\n{evidence.strip()}\n\n"
+                + (f"### Flag\n\n`{flag.strip()}`\n\n" if flag and flag.strip() else "")
+                + (f"### Verification\n\n{verification.strip()}\n" if verification and verification.strip() else "")
+            )
+            _append(path, entry)
+            self._finish_managed_write()
         self.event("writeup_recorded", {"title": title})
         return {"ok": True, "phase": self.phase}
 

@@ -92,9 +92,25 @@ fi
 
 providers=(codex opencode claude antigravity)
 commands=(codex opencode claude agy)
+
+user_command_available() {
+  # Under sudo, PATH is the root secure path and misses user-local installs
+  # such as ~/.local/bin/codex or ~/.opencode/bin/opencode. Treat an existing,
+  # executable binary in well-known per-user locations as available.
+  local required=$1 candidate sudo_home
+  command -v "$required" >/dev/null 2>&1 && return 0
+  if ((EUID == 0)) && [[ -n "${SUDO_USER:-}" ]]; then
+    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | awk -F: '{print $6}' || true)
+    for candidate in "$sudo_home/.local/bin/$required" "$sudo_home/.opencode/bin/$required"; do
+      [[ -x "$candidate" ]] && return 0
+    done
+  fi
+  return 1
+}
+
 detected=()
 for index in "${!providers[@]}"; do
-  command -v "${commands[index]}" >/dev/null 2>&1 && detected+=("${providers[index]}")
+  user_command_available "${commands[index]}" && detected+=("${providers[index]}")
 done
 defaults=$(join_by_comma "${detected[@]+"${detected[@]}"}}")
 if [[ -n "$AGENTS_ARG" ]]; then
@@ -145,7 +161,7 @@ refresh_missing() {
       antigravity) required=agy ;;
       *) printf 'Unknown provider: %s\n' "$selected" >&2; exit 2 ;;
     esac
-    command -v "$required" >/dev/null 2>&1 || missing+=("$selected")
+    user_command_available "$required" || missing+=("$selected")
   done
 }
 
