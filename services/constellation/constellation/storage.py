@@ -584,6 +584,7 @@ class ConstellationStorage:
         *,
         status: str,
         error: str | None = None,
+        requesting_runtime_id: str | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         updates: dict[str, Any] = {"status": status, "updated_at": now}
@@ -593,8 +594,11 @@ class ConstellationStorage:
             updates["completed_at"] = now
         if error is not None:
             updates["error"] = error
+        query: dict[str, Any] = {"_id": ObjectId(command_id)}
+        if requesting_runtime_id:
+            query["runtime_id"] = requesting_runtime_id
         doc = self.runtime_commands.find_one_and_update(
-            {"_id": ObjectId(command_id)},
+            query,
             {"$set": updates},
             return_document=ReturnDocument.AFTER,
         )
@@ -1197,19 +1201,34 @@ class ConstellationStorage:
         self.members.delete_one({"_id": member["_id"]})
         return {"removed": True, "member_id": member_id, "topic": topic}
 
+    @staticmethod
+    def audience_allows(audience: dict[str, Any] | None, member_id: str, *, sender_id: str | None = None) -> bool:
+        if not isinstance(audience, dict):
+            return True
+        mode = audience.get("mode", "topic")
+        if mode in ("topic", None):
+            return True
+        if mode == "member":
+            if sender_id is not None and member_id == sender_id:
+                return True
+            member_ids = audience.get("member_ids")
+            if isinstance(member_ids, list):
+                return member_id in member_ids
+            return False
+        return False
+
     def exchange_admin_token(self, topic: str, member_id: str, single_use_password: str) -> dict[str, Any]:
         member = self._member_doc(member_id)
         if member["topic"] != topic:
             raise KeyError(member_id)
         digest = digest_secret(single_use_password)
-        token_doc = self.admin_tokens.find_one({"topic": topic, "digest": digest, "used": False})
-        if token_doc is None:
-            raise PermissionError("Invalid or already used single-use password.")
         now = utc_now()
-        self.admin_tokens.update_one(
-            {"_id": token_doc["_id"]},
+        token_doc = self.admin_tokens.find_one_and_update(
+            {"topic": topic, "digest": digest, "used": False},
             {"$set": {"used": True, "used_at": now, "used_by_member_id": member_id}},
         )
+        if token_doc is None:
+            raise PermissionError("Invalid or already used single-use password.")
         self.members.update_one({"_id": member["_id"]}, {"$set": {"master_capability": True, "last_seen_at": now}})
         updated = self.members.find_one({"_id": member["_id"]})
         assert updated is not None
@@ -1291,7 +1310,7 @@ class ConstellationStorage:
         for item in documents:
             relative_path = str(item["relative_path"]).strip()
             content = str(item["content"])
-            sha256_value = str(item["sha256"])
+            sha256_value = hashlib.sha256(content.encode("utf-8")).hexdigest()
             update_doc = {
                 "topic": topic,
                 "member_id": member_id,

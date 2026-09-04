@@ -70,6 +70,9 @@ scripts/mcx screenshot --output /tmp/minecraft-state.png
 # Read the latest Minecraft log
 scripts/mcx read-log --which latest --tail 80
 
+# Confirm the running game uses the requested offline username
+scripts/mcx verify-identity --session world-demo --username ra13118
+
 # Stop the managed session
 scripts/mcx stop
 ```

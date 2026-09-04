@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import argparse
 import base64
 import json
@@ -63,8 +64,7 @@ class BaseHandler(tornado.web.RequestHandler):
         header = self.request.headers.get("Authorization", "").strip()
         if header.lower().startswith("bearer "):
             return header[7:].strip()
-        query_token = self.get_query_argument("token", default="").strip()
-        return query_token
+        return ""
 
     def _ui_request_allowed(self) -> bool:
         expected = self.app_state.settings.ui_shared_secret
@@ -86,6 +86,14 @@ class BaseHandler(tornado.web.RequestHandler):
             self.set_status(401)
             self.finish({"ok": False, "error": "Unauthorized"})
             raise tornado.web.Finish()
+
+    def _int_query(self, name: str, default: int, minimum: int = 1, maximum: int = 500) -> int:
+        raw = self.get_query_argument(name, default=str(default)).strip() or str(default)
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise tornado.web.HTTPError(400, reason=f"`{name}` must be an integer.") from exc
+        return max(minimum, min(value, maximum))
 
     def write_json(self, payload: dict[str, Any], *, status: int = 200) -> None:
         self.set_status(status)
@@ -163,7 +171,7 @@ class RuntimeCommandsHandler(BaseHandler):
         if runtime is None:
             raise tornado.web.HTTPError(404, reason=f"Unknown runtime: {runtime_id}")
         status = self.get_query_argument("status", "").strip() or None
-        limit = int(self.get_query_argument("limit", "100"))
+        limit = self._int_query("limit", 100)
         commands = self.app_state.storage.list_runtime_commands(runtime_id, status=status, limit=limit)
         self.write_json({"ok": True, "runtime": runtime, "commands": commands})
 
@@ -344,7 +352,7 @@ class AgentRejectHandler(BaseHandler):
 
 class AgentEventsHandler(BaseHandler):
     def get(self, agent_id: str) -> None:
-        limit = int(self.get_query_argument("limit", "200"))
+        limit = self._int_query("limit", 200)
         agent = self.app_state.storage.get_agent(agent_id)
         if agent is None:
             raise tornado.web.HTTPError(404, reason=f"Unknown agent: {agent_id}")
@@ -426,7 +434,7 @@ class AgentInterruptHandler(BaseHandler):
 
 class ChallengeEventsHandler(BaseHandler):
     def get(self, challenge_id: str) -> None:
-        limit = int(self.get_query_argument("limit", "200"))
+        limit = self._int_query("limit", 200)
         challenge = self.app_state.storage.get_challenge(challenge_id)
         if challenge is None:
             raise tornado.web.HTTPError(404, reason=f"Unknown challenge: {challenge_id}")
@@ -464,13 +472,13 @@ class TopicItemHandler(BaseHandler):
 
 class TopicHistoryHandler(BaseHandler):
     def get(self, topic: str) -> None:
-        limit = int(self.get_query_argument("limit", "100"))
+        limit = self._int_query("limit", 100)
         self.write_json({"ok": True, "history": self.app_state.storage.history(topic, limit=limit)})
 
 
 class TopicEventsHandler(BaseHandler):
     def get(self, topic: str) -> None:
-        limit = int(self.get_query_argument("limit", "200"))
+        limit = self._int_query("limit", 200)
         after_id = self.get_query_argument("after_id", "").strip() or None
         try:
             events = self.app_state.storage.list_broker_events(topic, after_id=after_id, limit=limit)
@@ -750,7 +758,12 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
         self.runtime_id = ""
 
     def check_origin(self, origin: str) -> bool:
-        return True
+        if not origin:
+            return True
+        allowed = self.app_state.settings.allowed_ws_origins
+        if not allowed:
+            return False
+        return _normalize_origin(origin) in allowed
 
     def select_subprotocol(self, subprotocols: list[str]) -> str | None:
         if "opencrow.runtime.v2" in subprotocols:
@@ -769,6 +782,9 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
             payload = json.loads(message)
         except json.JSONDecodeError:
             self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload"}))
+            return
+        if not isinstance(payload, dict):
+            self.write_message(json.dumps({"event_type": "error", "error": "Payload must be a JSON object"}))
             return
         action = str(payload.get("action", "")).strip()
         try:
@@ -798,6 +814,7 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
                     str(payload.get("command_id", "")),
                     status=str(payload.get("status", "")).strip() or "running",
                     error=str(payload.get("error", "")).strip() or None,
+                    requesting_runtime_id=self.runtime_id,
                 )
                 self.write_message(json.dumps({"event_type": "command_status", "command": command}))
                 return
@@ -835,7 +852,8 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
                 self.write_message(json.dumps({"event_type": "agent_event", "event": event}))
                 return
         except Exception as exc:
-            self.write_message(json.dumps({"event_type": "error", "error": str(exc)}))
+            logging.error('WebSocket internal error in RuntimeControlWebSocket', exc_info=True)
+            self.write_message(json.dumps({"event_type": "error", "error": "Internal server error"}))
             return
         self.write_message(json.dumps({"event_type": "error", "error": f"Unsupported action: {action}"}))
 
@@ -960,11 +978,19 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
                     break
         except Exception as exc:  # pragma: no cover - defensive websocket path
             if self.io_loop is not None:
-                self.io_loop.add_callback(self._emit_event, {"event_type": "error", "payload": {"error": str(exc)}})
+                logging.error('WebSocket internal error in ConstellationWebSocket', exc_info=True)
+                self.io_loop.add_callback(self._emit_event, {"event_type": "error", "payload": {"error": "Internal server error"}})
 
     def _emit_event(self, event: dict[str, Any]) -> None:
         if self.ws_connection is None:
             return
+        if event.get("event_type") == "message":
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                audience = payload.get("audience") if isinstance(payload.get("audience"), dict) else None
+                sender_id = (payload.get("sender") or {}).get("member_id")
+                if not self.app_state.storage.audience_allows(audience, self.member_id, sender_id=sender_id):
+                    return
         current_member = self.app_state.storage.get_member(self.member_id)
         if current_member is None:
             self.close(code=4004, reason="Unknown topic member.")
@@ -1004,7 +1030,7 @@ def _extract_websocket_token(request: tornado.httputil.HTTPServerRequest) -> str
                 return _decode_ws_token(encoded)
             except Exception:
                 continue
-    return request.query_arguments.get("token", [b""])[0].decode("utf-8", errors="ignore").strip()
+    return ""
 
 
 def _safe_download_filename(raw_value: str) -> str:

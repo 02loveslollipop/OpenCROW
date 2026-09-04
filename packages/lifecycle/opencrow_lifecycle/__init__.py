@@ -8,4 +8,4 @@ from .engine import (
 )
 
 __all__ = ["CANONICAL_DOCUMENTS", "LifecycleError", "WorkflowEngine", "find_workspace"]
-__version__ = "2.1.0"
+__version__ = "2.1.2"

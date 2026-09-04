@@ -140,7 +140,7 @@ def portable_python(source: Path | None, destination: Path, architecture: str, a
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", default="2.1.0")
+    parser.add_argument("--version", default="2.1.2")
     parser.add_argument("--release-tag")
     parser.add_argument("--source-sha")
     parser.add_argument("--portable-python-x86", type=Path)

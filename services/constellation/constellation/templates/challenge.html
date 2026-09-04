@@ -15,6 +15,7 @@
     <pre>{{ challenge.description }}</pre>
     {% if challenge.challenge_type != "constellation" %}
     <form method="post" action="{{ url_for('convert_challenge', challenge_id=challenge.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit">Convert to Constellation</button>
     </form>
     {% endif %}
@@ -23,6 +24,7 @@
   <section class="panel">
     <h2>Files</h2>
     <form method="post" action="{{ url_for('upload_challenge_files', challenge_id=challenge.id) }}" class="stack" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="file" name="files" multiple>
       <button type="submit">Upload files</button>
     </form>
@@ -77,10 +79,12 @@
         {% if agent.status == "approval_required" %}
         <div class="button-row">
           <form method="post" action="{{ url_for('approve_agent', agent_id=agent.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="challenge_id" value="{{ challenge.id }}">
             <button type="submit">Approve spawn</button>
           </form>
           <form method="post" action="{{ url_for('reject_agent', agent_id=agent.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="challenge_id" value="{{ challenge.id }}">
             <input type="hidden" name="reason" value="Rejected from dashboard">
             <button type="submit" class="danger">Reject</button>
@@ -88,6 +92,7 @@
         </div>
         {% endif %}
         <form method="post" action="{{ url_for('prompt_agent', agent_id=agent.id) }}" class="stack compact-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="challenge_id" value="{{ challenge.id }}">
           <label>
             <span>Follow-up prompt</span>
@@ -99,6 +104,7 @@
           </div>
         </form>
         <form id="interrupt-{{ agent.id }}" method="post" action="{{ url_for('interrupt_agent', agent_id=agent.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="challenge_id" value="{{ challenge.id }}">
         </form>
       </li>
@@ -111,6 +117,7 @@
   <section class="panel">
     <h2>Spawn Agent</h2>
     <form method="post" action="{{ url_for('create_challenge_agent', challenge_id=challenge.id) }}" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>
         <span>Name</span>
         <input type="text" name="display_name" placeholder="Slave agent">

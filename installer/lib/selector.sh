@@ -4,6 +4,36 @@
 SELECTED_VALUES=()
 SELECTOR_ACTION=confirm
 
+# Global terminal-restore state for the interactive menu. This must stay
+# global (never `local`): trap handlers run outside function scope, and a
+# previous attempt with function-local state hung on consecutive menus.
+_SELECTOR_TTY_ACTIVE=0
+_SELECTOR_SAVED_STTY=""
+
+_selector_restore() {
+  if (( ${_SELECTOR_TTY_ACTIVE:-0} )); then
+    stty "$_SELECTOR_SAVED_STTY" <&3 2>/dev/null
+    _SELECTOR_TTY_ACTIVE=0
+  fi
+  printf '\033[?25h' >&2
+  { exec 3<&-; } 2>/dev/null || true
+}
+
+_selector_sig() {
+  _selector_restore
+  trap - INT TERM
+  kill -s "$1" "$$"
+}
+
+_selector_arm_traps() {
+  trap '_selector_sig INT' INT
+  trap '_selector_sig TERM' TERM
+}
+
+_selector_disarm_traps() {
+  trap - INT TERM
+}
+
 _selector_contains() {
   local needle=$1 item
   shift
@@ -64,8 +94,9 @@ select_many() {
     if [[ ",$defaults," == *",$item,"* ]]; then selected+=(1); else selected+=(0); fi
   done
   exec 3</dev/tty
-  local old_stty
-  old_stty=$(stty -g <&3)
+  _SELECTOR_SAVED_STTY=$(stty -g <&3)
+  _SELECTOR_TTY_ACTIVE=1
+  _selector_arm_traps
   stty -echo -icanon min 1 time 0 <&3
   printf '\033[?25l' >&2
   while true; do
@@ -92,21 +123,21 @@ select_many() {
       break
     elif [[ "$key" == q || "$key" == Q ]]; then
       SELECTOR_ACTION=quit
-      stty "$old_stty" <&3
-      printf '\033[?25h\n' >&2
-      exec 3<&-
+      _selector_restore
+      _selector_disarm_traps
+      printf '\n' >&2
       return 1
     elif [[ "$key" == b || "$key" == B ]]; then
       SELECTOR_ACTION=back
-      stty "$old_stty" <&3
-      printf '\033[?25h\n' >&2
-      exec 3<&-
+      _selector_restore
+      _selector_disarm_traps
+      printf '\n' >&2
       return 2
     fi
   done
-  stty "$old_stty" <&3
-  printf '\033[?25h\033[2J\033[H' >&2
-  exec 3<&-
+  _selector_restore
+  _selector_disarm_traps
+  printf '\033[2J\033[H' >&2
   for cursor in "${!options[@]}"; do
     (( selected[cursor] )) && SELECTED_VALUES+=("${options[cursor]}")
   done

@@ -92,11 +92,27 @@ fi
 
 providers=(codex opencode claude antigravity)
 commands=(codex opencode claude agy)
+
+user_command_available() {
+  # Under sudo, PATH is the root secure path and misses user-local installs
+  # such as ~/.local/bin/codex or ~/.opencode/bin/opencode. Treat an existing,
+  # executable binary in well-known per-user locations as available.
+  local required=$1 candidate sudo_home
+  command -v "$required" >/dev/null 2>&1 && return 0
+  if ((EUID == 0)) && [[ -n "${SUDO_USER:-}" ]]; then
+    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | awk -F: '{print $6}' || true)
+    for candidate in "$sudo_home/.local/bin/$required" "$sudo_home/.opencode/bin/$required"; do
+      [[ -x "$candidate" ]] && return 0
+    done
+  fi
+  return 1
+}
+
 detected=()
 for index in "${!providers[@]}"; do
-  command -v "${commands[index]}" >/dev/null 2>&1 && detected+=("${providers[index]}")
+  user_command_available "${commands[index]}" && detected+=("${providers[index]}")
 done
-defaults=$(join_by_comma "${detected[@]}")
+defaults=$(join_by_comma "${detected[@]+"${detected[@]}"}}")
 if [[ -n "$AGENTS_ARG" ]]; then
   IFS=',' read -r -a selected_agents <<< "$AGENTS_ARG"
 else
@@ -107,7 +123,7 @@ install_missing=()
 conda_detected=0
 command -v conda >/dev/null 2>&1 && conda_detected=1
 if ((EUID == 0)) && [[ -n "${SUDO_USER:-}" ]]; then
-  sudo_home=$(getent passwd "$SUDO_USER" | awk -F: '{print $6}')
+  sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | awk -F: '{print $6}' || true)
   for candidate in "$sudo_home/.local/share/opencrow/miniconda/bin/conda" "$sudo_home/miniconda3/bin/conda" "$sudo_home/anaconda3/bin/conda"; do
     [[ -x "$candidate" ]] && conda_detected=1
   done
@@ -121,7 +137,7 @@ fi
 
 headless=(utility network reversing pwn web forensics stego crypto osint)
 toolbox_options=("${headless[@]}" sagemath)
-headless_defaults=$(join_by_comma "${headless[@]}")
+headless_defaults=$(join_by_comma "${headless[@]+"${headless[@]}"}}")
 if [[ -n "$TOOLBOXES_ARG" ]]; then
   IFS=',' read -r -a selected_toolboxes <<< "$TOOLBOXES_ARG"
 else
@@ -145,7 +161,7 @@ refresh_missing() {
       antigravity) required=agy ;;
       *) printf 'Unknown provider: %s\n' "$selected" >&2; exit 2 ;;
     esac
-    command -v "$required" >/dev/null 2>&1 || missing+=("$selected")
+    user_command_available "$required" || missing+=("$selected")
   done
 }
 
@@ -188,7 +204,7 @@ run_selection_flow() {
     fi
     case "$screen" in
       1)
-        defaults_for_screen=$(join_by_comma "${selected_agents[@]}")
+        defaults_for_screen=$(join_by_comma "${selected_agents[@]+"${selected_agents[@]}"}}")
         if select_many "1/6 Agent integrations (missing CLIs are visible but unchecked)" "$defaults_for_screen" "${providers[@]}"; then
           selected_agents=("${SELECTED_VALUES[@]}")
           if ((${#selected_agents[@]} == 0)); then
@@ -204,7 +220,7 @@ run_selection_flow() {
         fi
         ;;
       2)
-        defaults_for_screen=$(join_by_comma "${install_missing[@]}")
+        defaults_for_screen=$(join_by_comma "${install_missing[@]+"${install_missing[@]}"}}")
         if select_many "2/6 Optionally install selected missing agent CLIs" "$defaults_for_screen" "${missing[@]}"; then
           install_missing=("${SELECTED_VALUES[@]}")
         else
@@ -228,7 +244,7 @@ run_selection_flow() {
         fi
         ;;
       4)
-        defaults_for_screen=$(join_by_comma "${selected_toolboxes[@]}")
+        defaults_for_screen=$(join_by_comma "${selected_toolboxes[@]+"${selected_toolboxes[@]}"}}")
         if select_many "4/6 Toolbox bundles (headless bundles are preselected; SageMath is optional)" "$defaults_for_screen" "${toolbox_options[@]}"; then
           selected_toolboxes=("${SELECTED_VALUES[@]}")
         else
@@ -239,7 +255,7 @@ run_selection_flow() {
         fi
         ;;
       5)
-        defaults_for_screen=$(join_by_comma "${selected_tools[@]}")
+        defaults_for_screen=$(join_by_comma "${selected_tools[@]+"${selected_tools[@]}"}}")
         if select_many "5/6 Advanced individual-tool overrides" "$defaults_for_screen" "${manual[@]}"; then
           selected_tools=("${SELECTED_VALUES[@]}")
         else
@@ -256,7 +272,7 @@ run_selection_flow() {
 }
 
 refresh_missing
-if ((INSTALL_MISSING || ASSUME_YES)); then install_missing=("${missing[@]}"); fi
+if ((INSTALL_MISSING)); then install_missing=("${missing[@]+"${missing[@]}"}"); fi
 if ((!ASSUME_YES)); then
   first_screen=$(next_enabled_screen 0)
   ((first_screen <= 5)) && run_selection_flow "$first_screen"
@@ -267,15 +283,15 @@ if ((${#selected_agents[@]} == 0)); then
 fi
 
 while true; do
-  agents_csv=$(join_by_comma "${selected_agents[@]}")
-  toolboxes_csv=$(join_by_comma "${selected_toolboxes[@]}")
-  tools_csv=$(join_by_comma "${selected_tools[@]}")
+  agents_csv=$(join_by_comma "${selected_agents[@]+"${selected_agents[@]}"}}")
+  toolboxes_csv=$(join_by_comma "${selected_toolboxes[@]+"${selected_toolboxes[@]}"}}")
+  tools_csv=$(join_by_comma "${selected_tools[@]+"${selected_tools[@]}"}}")
   sagemath_extra=0
   _selector_contains sagemath "${selected_toolboxes[@]}" && sagemath_extra=6
   estimated_gb=$((2 + ${#selected_toolboxes[@]} * 1 + conda_selected * 2 + sagemath_extra))
   printf '\n6/6 Licenses, estimate, and command plan\n'
   printf '  Providers: %s\n  Missing CLI installs: %s\n  Miniconda: %s\n  Toolboxes: %s\n  Advanced tools: %s\n' \
-    "$agents_csv" "$(join_by_comma "${install_missing[@]}")" "$conda_selected" "$toolboxes_csv" "${tools_csv:-none}"
+    "$agents_csv" "$(join_by_comma "${install_missing[@]+"${install_missing[@]}"}}")" "$conda_selected" "$toolboxes_csv" "${tools_csv:-none}"
   printf '  Estimated disk ceiling: approximately %s GiB\n' "$estimated_gb"
   printf '  Package manager: %s (OS packages only)\n' "$PACKAGE_MANAGER"
   printf '  Licenses: OpenCROW Apache-2.0; third-party tools retain their own licenses.\n'
@@ -303,7 +319,7 @@ fi
 
 if ((EUID != 0)); then
   printf 'Full installation requires sudo and has not changed the machine. Rerun exactly:\n  sudo bash %q' "$0" >&2
-  printf ' %q' "${ORIGINAL_ARGS[@]}" >&2
+  printf ' %q' "${ORIGINAL_ARGS[@]+"${ORIGINAL_ARGS[@]}"}" >&2
   printf '\nFor a rootless installation instead:\n  curl -fsSL https://opencrow.02labs.me/skills.sh | bash\n' >&2
   exit 4
 fi
@@ -313,7 +329,7 @@ if [[ -z "$TARGET_USER" ]]; then
   printf 'install.sh: run through sudo so SUDO_USER identifies the owner of user files, or set OPENCROW_TARGET_USER. No changes made.\n' >&2
   exit 4
 fi
-TARGET_HOME=$(getent passwd "$TARGET_USER" | awk -F: '{print $6}')
+TARGET_HOME=$(getent passwd "$TARGET_USER" 2>/dev/null | awk -F: '{print $6}' || true)
 [[ -n "$TARGET_HOME" ]] || { printf 'install.sh: cannot resolve home for %s.\n' "$TARGET_USER" >&2; exit 4; }
 
 run_user() {
@@ -400,10 +416,10 @@ if ((${#resolved_packages[@]})); then
   esac
 fi
 if ((${#unresolved_packages[@]})); then
-  printf 'OpenCROW unresolved external packages (installation continues): %s\n' "$(join_by_comma "${unresolved_packages[@]}")" >&2
+  printf 'OpenCROW unresolved external packages (installation continues): %s\n' "$(join_by_comma "${unresolved_packages[@]+"${unresolved_packages[@]}"}}")" >&2
 fi
 
-install_missing_csv=$(join_by_comma "${install_missing[@]}")
+install_missing_csv=$(join_by_comma "${install_missing[@]+"${install_missing[@]}"}}")
 cli_receipt_before=$(run_user python3 "$INSTALLER_DIR/lib/agent_cli_receipts.py" snapshot \
   --home "$TARGET_HOME" --providers "$install_missing_csv")
 for provider in "${install_missing[@]}"; do
@@ -432,7 +448,7 @@ if [[ -n "$conda_command" ]]; then
   environment_args=(--conda "$conda_command")
 fi
 environment_methods_json=$(run_user python3 "$INSTALLER_DIR/lib/install_python_envs.py" \
-  "${environment_args[@]}" \
+  "${environment_args[@]+"${environment_args[@]}"}" \
   --manifest "$INSTALLER_DIR/manifests/python-environments.json" \
   --data-root "$TARGET_HOME/.local/share/opencrow" \
   --toolboxes "$toolboxes_csv")
@@ -445,7 +461,7 @@ if [[ -n "$environment_unresolved" ]]; then
   printf 'OpenCROW unresolved environment dependencies (installation continues): %s\n' "$environment_unresolved" >&2
 fi
 
-package_methods_json=$(python3 - "$PACKAGE_MANAGER" "$(join_by_comma "${resolved_packages[@]}")" "$(join_by_comma "${preexisting_packages[@]}")" "$(join_by_comma "${unresolved_packages[@]}")" "$install_missing_csv" "$conda_selected" "$environment_methods_json" "$cli_receipts" <<'PY'
+package_methods_json=$(python3 - "$PACKAGE_MANAGER" "$(join_by_comma "${resolved_packages[@]+"${resolved_packages[@]}"}}")" "$(join_by_comma "${preexisting_packages[@]+"${preexisting_packages[@]}"}}")" "$(join_by_comma "${unresolved_packages[@]+"${unresolved_packages[@]}"}}")" "$install_missing_csv" "$conda_selected" "$environment_methods_json" "$cli_receipts" <<'PY'
 import json, sys
 manager, installed, preexisting, unresolved, agent_clis, miniconda, environments, receipts = sys.argv[1:]
 split = lambda value: [item for item in value.split(",") if item]
