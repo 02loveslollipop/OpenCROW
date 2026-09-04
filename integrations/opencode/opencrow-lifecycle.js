@@ -1,13 +1,19 @@
 // OpenCROW lifecycle adapter for OpenCode's native plugin hooks.
 
 function runHook(event, payload, directory) {
-  const process = Bun.spawnSync({
-    cmd: ["opencrow-lifecycle-hook", event, "--provider", "opencode", "--workspace", directory],
-    cwd: directory,
-    stdin: JSON.stringify(payload || {}),
-    stdout: "pipe",
-    stderr: "pipe",
-  })
+  let process
+  try {
+    process = Bun.spawnSync({
+      cmd: ["opencrow-lifecycle-hook", event, "--provider", "opencode", "--workspace", directory],
+      cwd: directory,
+      stdin: JSON.stringify(payload || {}),
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+  } catch (err) {
+    // Fail open: a missing/broken hook binary must never brick the session.
+    return { code: 0, response: { warning: `OpenCROW lifecycle hook failed: ${err}` }, stderr: String(err) }
+  }
   const stdout = process.stdout ? new TextDecoder().decode(process.stdout).trim() : ""
   const stderr = process.stderr ? new TextDecoder().decode(process.stderr).trim() : ""
   let response = {}
@@ -42,7 +48,7 @@ export const OpenCrowLifecycle = async ({ directory, client }) => {
       if (result.code === 2) throw new Error(result.response.reason || result.stderr || "Blocked by OpenCROW lifecycle")
     },
     "tool.execute.after": async (input, output) => {
-      runHook("post_tool", { tool_name: input.tool, tool_input: input.args, tool_output: output.output }, directory)
+      runHook("post_tool", { tool_name: input.tool, tool_input: output.args, tool_output: output.output }, directory)
     },
     event: async ({ event }) => {
       if (event.type === "session.created") refresh()

@@ -4,6 +4,7 @@
 <section class="panel narrow">
   <h2>Authenticate</h2>
   <form method="post" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>
       <span>System token</span>
       <input type="password" name="token" required>

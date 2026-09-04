@@ -13,7 +13,29 @@ from urllib.parse import urlsplit, urlunsplit
 
 CONFIG_PATH = Path.home() / ".config" / "opencrow" / "constellation" / "config.json"
 DEFAULT_STATE_DIR_NAME = ".opencrow-constellation"
-DEFAULT_DEVELOPMENT_TOKEN = secrets.token_hex(32)
+DEFAULT_TOKEN_PATH = CONFIG_PATH.parent / "dev_token"
+
+
+def _default_development_token() -> str:
+    """Shared per-host development token so backend/runtime/client agree by default."""
+    try:
+        if DEFAULT_TOKEN_PATH.exists():
+            token = DEFAULT_TOKEN_PATH.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+    except OSError:
+        pass
+    token = secrets.token_hex(32)
+    try:
+        DEFAULT_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DEFAULT_TOKEN_PATH.write_text(token + "\n", encoding="utf-8")
+        DEFAULT_TOKEN_PATH.chmod(0o600)
+    except OSError:
+        pass
+    return token
+
+
+DEFAULT_DEVELOPMENT_TOKEN = _default_development_token()
 
 
 def _load_config_file(path: Path = CONFIG_PATH) -> dict[str, Any]:

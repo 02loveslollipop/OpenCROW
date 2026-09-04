@@ -13,10 +13,28 @@ esac
 filename=Miniconda3-latest-Linux-${VENDOR_ARCH}.sh
 base=https://repo.anaconda.com/miniconda
 temporary=$(mktemp "${TMPDIR:-/tmp}/miniconda.XXXXXX.sh")
-trap 'rm -f "$temporary" "$temporary.sha256"' EXIT
+temporary_checksum=$(mktemp "${TMPDIR:-/tmp}/miniconda.XXXXXX.sha256")
+index=$(mktemp "${TMPDIR:-/tmp}/miniconda-index.XXXXXX.html")
+trap 'rm -f "$temporary" "$temporary_checksum" "$index"' EXIT
 curl -fsSL "$base/$filename" -o "$temporary"
-curl -fsSL "$base/${filename}.sha256" -o "$temporary.sha256"
-expected=$(awk 'NR == 1 {print $1}' "$temporary.sha256")
-[[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || { printf 'Vendor checksum manifest is invalid.\n' >&2; exit 2; }
+expected=
+# Preferred source: the .sha256 sidecar. Anaconda removed these sidecars from
+# repo.anaconda.com, so fall back to the official hash published in the
+# repository index page that Anaconda's own docs point to for verification.
+if curl -fsSL "$base/${filename}.sha256" -o "$temporary_checksum"; then
+  expected=$(awk 'NR == 1 {print $1}' "$temporary_checksum")
+fi
+if [[ ! "$expected" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  if curl -fsSL "$base/index.html" -o "$index"; then
+    expected=$(awk -v fn="$filename" '
+      $0 ~ ("<a href=\"" fn "\">") { found = 1 }
+      found && match($0, /[a-fA-F0-9]{64}/) { print substr($0, RSTART, RLENGTH); exit }
+    ' "$index")
+  fi
+fi
+[[ "$expected" =~ ^[a-fA-F0-9]{64}$ ]] || {
+  printf 'Vendor checksum unavailable: neither %s.sha256 nor the repository index provided a SHA-256.\n' "$filename" >&2
+  exit 2
+}
 printf '%s  %s\n' "$expected" "$temporary" | sha256sum -c - >/dev/null
 bash "$temporary" -b -p "$PREFIX"

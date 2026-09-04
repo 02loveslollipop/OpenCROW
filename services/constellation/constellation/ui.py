@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import secrets as secrets_module
+import shutil
 import tempfile
 from functools import wraps
 from pathlib import Path
@@ -30,6 +32,11 @@ def _save_upload_to_temp(part: Any) -> Path:
     return target
 
 
+def _cleanup_upload_paths(paths: list[Path]) -> None:
+    for path in paths:
+        shutil.rmtree(path.parent, ignore_errors=True)
+
+
 def _client_settings(ui_settings: UISettings, token: str) -> ClientSettings:
     return ClientSettings(
         api_base_url=ui_settings.backend_api_base_url,
@@ -48,6 +55,25 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
     app = Flask(__name__, template_folder=str(TEMPLATE_ROOT), static_folder=str(STATIC_ROOT))
     app.secret_key = resolved_ui_settings.secret_key
     app.config["ui_settings"] = resolved_ui_settings
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+
+    def _csrf_token() -> str:
+        token = session.get("csrf_token")
+        if not token:
+            token = secrets_module.token_hex(32)
+            session["csrf_token"] = token
+            session.modified = True
+        return str(token)
+
+    @app.before_request
+    def csrf_protect() -> Any:
+        if request.method == "POST":
+            session_token = session.get("csrf_token")
+            supplied = request.form.get("csrf_token", "")
+            if not session_token or not supplied or not secrets_module.compare_digest(str(session_token), supplied):
+                return Response("CSRF token missing or invalid.", status=403)
+        return None
 
     def _backend_client_headers() -> dict[str, str]:
         if not resolved_ui_settings.shared_secret:
@@ -94,6 +120,7 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
         return {
             "ui_settings": resolved_ui_settings,
             "display_name": session.get("display_name"),
+            "csrf_token": _csrf_token(),
         }
 
     @app.route("/login", methods=["GET", "POST"])
@@ -169,6 +196,8 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
                 client.upload_challenge_files(challenge["id"], upload_paths)
             except ConstellationAPIError as exc:
                 flash(f"Challenge created, but upload failed: {exc}", "error")
+            finally:
+                _cleanup_upload_paths(upload_paths)
         try:
             role = "solo" if challenge_type == "single_agent" else "master"
             client.create_agent(
@@ -223,6 +252,8 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
             flash("Files uploaded.", "success")
         except ConstellationAPIError as exc:
             flash(str(exc), "error")
+        finally:
+            _cleanup_upload_paths(upload_paths)
         return redirect(url_for("challenge_detail", challenge_id=challenge_id))
 
     @app.post("/challenges/<challenge_id>/agents")

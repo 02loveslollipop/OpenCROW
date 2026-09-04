@@ -56,7 +56,10 @@ def utc_now() -> str:
 
 def atomic_text(path: Path, value: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing_mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else mode
+    try:
+        existing_mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        existing_mode = mode
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
@@ -361,8 +364,11 @@ class StateEngine:
     def _commit_stage(self, stage: Path) -> None:
         previous = self.paths.previous
         current = self.paths.current
+        moved_previous = False
         if previous.exists():
-            shutil.rmtree(previous)
+            # Only retire the previous snapshot after the new stage is safely in place.
+            os.replace(previous, previous.with_suffix(".retiring"))
+            moved_previous = True
         moved_current = False
         try:
             if current.exists():
@@ -372,7 +378,13 @@ class StateEngine:
         except Exception:
             if not current.exists() and moved_current and previous.exists():
                 os.replace(previous, current)
+            if moved_previous:
+                retiring = previous.with_suffix(".retiring")
+                if retiring.exists() and not current.exists():
+                    os.replace(retiring, previous)
             raise
+        if moved_previous:
+            shutil.rmtree(previous.with_suffix(".retiring"), ignore_errors=True)
 
     def _validate_stage(self, stage: Path, agents: list[str]) -> None:
         expected_path = stage / "checksums.json"
@@ -586,6 +598,10 @@ class StateEngine:
             if major_match and int(major_match.group(1)) >= 2:
                 server = fragment.get("mcp", {}).get("opencrow-lifecycle")
                 fragment["mcp"] = {"servers": {"opencrow-lifecycle": server}}
+                legacy = existing.get("mcp")
+                if isinstance(legacy, dict) and "opencrow-lifecycle" in legacy:
+                    # Drop the pre-v2 server entry so the two layouts do not coexist.
+                    del legacy["opencrow-lifecycle"]
         merged = deep_merge(existing, fragment)
         atomic_text(destination, json.dumps(merged, indent=2, sort_keys=True) + "\n")
         managed = [str(destination)]
@@ -1003,7 +1019,7 @@ class StateEngine:
             (
                 candidate
                 for candidate in python_candidates
-                if candidate and (candidate == os.environ.get("OPENCROW_PYTHON") or Path(candidate).is_file())
+                if candidate and Path(candidate).is_file()
             ),
             None,
         )

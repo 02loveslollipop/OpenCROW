@@ -6,6 +6,7 @@
     <h2>{{ topic.title }}</h2>
     <p class="subtle">{{ topic.slug }} · {{ topic.category }}</p>
     <form method="post" action="{{ url_for('update_topic', topic=topic.slug) }}" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>
         <span>Title</span>
         <input type="text" name="title" value="{{ topic.title }}">
@@ -26,9 +27,11 @@
     </form>
     <div class="button-row">
       <form method="post" action="{{ url_for('regenerate_admin', topic=topic.slug) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit">Generate single-use admin password</button>
       </form>
       <form method="post" action="{{ url_for('delete_topic', topic=topic.slug) }}" onsubmit="return confirm('Delete this topic permanently?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit" class="danger">Delete topic</button>
       </form>
     </div>
@@ -37,6 +40,7 @@
   <section class="panel">
     <h2>Master Console</h2>
     <form method="post" action="{{ url_for('send_message', topic=topic.slug) }}" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>
         <span>Message type</span>
         <select name="message_type">

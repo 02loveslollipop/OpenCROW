@@ -5,6 +5,7 @@
   <section class="panel">
     <h2>Create Challenge</h2>
     <form method="post" action="{{ url_for('create_challenge') }}" class="stack" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>
         <span>Title</span>
         <input type="text" name="title" required>
@@ -111,6 +112,7 @@
   <section class="panel">
     <h2>Create Legacy Topic</h2>
     <form method="post" action="{{ url_for('create_topic') }}" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label>
         <span>Title</span>
         <input type="text" name="title" required>
