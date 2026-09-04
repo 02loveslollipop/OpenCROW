@@ -171,6 +171,25 @@ def test_direct_append_is_accepted_and_destructive_edit_is_snapshotted(tmp_path:
     assert accepted.read_text().startswith(original)
 
 
+def test_delete_and_recreate_with_different_content_is_blocked(tmp_path: Path) -> None:
+    """Delete+recreate cannot bypass append-only: the reject branch never
+    touches accepted_documents, so previous_exists stays True and a
+    replacement still yields a blocker (audit §3, was PENDIENTE)."""
+    engine = initialized(tmp_path)
+    engine.record_finding(title="Format", finding="ELF x86-64", evidence="file service.bin")
+    findings = tmp_path / "FINDINGS.md"
+    assert findings.is_file()
+    findings.unlink()
+    assert not findings.exists()
+    findings.write_text("# Findings\n\nreplacement\n", encoding="utf-8")
+    validation = engine.reconcile_history()
+    assert not validation.valid
+    assert any("FINDINGS.md" in blocker for blocker in validation.blockers)
+    assert "discarded or replaced" in " ".join(validation.blockers)
+    with pytest.raises(LifecycleError, match="discarded or replaced"):
+        engine.begin_invocation()
+
+
 def test_destructive_direct_edit_warns_or_logs_when_configured(tmp_path: Path) -> None:
     engine = initialized(tmp_path)
     findings = tmp_path / "FINDINGS.md"
