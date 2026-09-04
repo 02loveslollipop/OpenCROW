@@ -30,6 +30,10 @@ _selector_arm_traps() {
   trap '_selector_sig TERM' TERM
 }
 
+_selector_disarm_traps() {
+  trap - INT TERM
+}
+
 _selector_contains() {
   local needle=$1 item
   shift
@@ -120,16 +124,19 @@ select_many() {
     elif [[ "$key" == q || "$key" == Q ]]; then
       SELECTOR_ACTION=quit
       _selector_restore
+      _selector_disarm_traps
       printf '\n' >&2
       return 1
     elif [[ "$key" == b || "$key" == B ]]; then
       SELECTOR_ACTION=back
       _selector_restore
+      _selector_disarm_traps
       printf '\n' >&2
       return 2
     fi
   done
   _selector_restore
+  _selector_disarm_traps
   printf '\033[2J\033[H' >&2
   for cursor in "${!options[@]}"; do
     (( selected[cursor] )) && SELECTED_VALUES+=("${options[cursor]}")
