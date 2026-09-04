@@ -178,7 +178,9 @@ def test_delete_and_recreate_with_different_content_is_blocked(tmp_path: Path) -
     engine = initialized(tmp_path)
     engine.record_finding(title="Format", finding="ELF x86-64", evidence="file service.bin")
     findings = tmp_path / "FINDINGS.md"
+    assert findings.is_file()
     findings.unlink()
+    assert not findings.exists()
     findings.write_text("# Findings\n\nreplacement\n", encoding="utf-8")
     validation = engine.reconcile_history()
     assert not validation.valid
