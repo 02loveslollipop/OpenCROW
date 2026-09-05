@@ -928,39 +928,48 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         except json.JSONDecodeError:
             self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload"}))
             return
+        if not isinstance(payload, dict):
+            self.write_message(json.dumps({"event_type": "error", "error": "Payload must be a JSON object"}))
+            return
         action = str(payload.get("action", "ping")).strip()
-        current_member = self.app_state.storage.get_member(self.member_id)
-        if current_member is None:
-            self.close(code=4004, reason="Unknown topic member.")
-            return
-        if self.session_epoch is not None and int(current_member.get("session_epoch", 0)) != self.session_epoch:
-            self.close(code=4006, reason="Session superseded")
-            return
-        if action == "ping":
-            self.write_message(json.dumps({"event_type": "pong"}))
-            return
-        if action == "heartbeat":
-            try:
-                member = self.app_state.storage.touch_member(self.member_id)
-            except KeyError:
-                self.write_message(json.dumps({"event_type": "error", "error": "Unknown member"}))
+        try:
+            current_member = self.app_state.storage.get_member(self.member_id)
+            if current_member is None:
+                self.close(code=4004, reason="Unknown topic member.")
                 return
-            self.write_message(json.dumps({"event_type": "heartbeat", "member": member}))
-            return
-        if action == "send":
-            try:
-                message_payload = self.app_state.storage.send_message(
-                    self.topic,
-                    member_id=self.member_id,
-                    message_type=str(payload.get("type", "chat_message")),
-                    body=str(payload.get("body", "")),
-                    audience=payload.get("audience") if isinstance(payload.get("audience"), dict) else None,
-                    metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
-                )
-            except (KeyError, PermissionError, ValueError) as exc:
-                self.write_message(json.dumps({"event_type": "error", "error": str(exc)}))
+            if self.session_epoch is not None and int(current_member.get("session_epoch", 0)) != self.session_epoch:
+                self.close(code=4006, reason="Session superseded")
                 return
-            self.write_message(json.dumps({"event_type": "ack", "payload": message_payload}))
+            if action == "ping":
+                self.write_message(json.dumps({"event_type": "pong"}))
+                return
+            if action == "heartbeat":
+                try:
+                    member = self.app_state.storage.touch_member(self.member_id)
+                except KeyError:
+                    self.write_message(json.dumps({"event_type": "error", "error": "Unknown member"}))
+                    return
+                self.write_message(json.dumps({"event_type": "heartbeat", "member": member}))
+                return
+            if action == "send":
+                try:
+                    message_payload = self.app_state.storage.send_message(
+                        self.topic,
+                        member_id=self.member_id,
+                        message_type=str(payload.get("type", "chat_message")),
+                        body=str(payload.get("body", "")),
+                        audience=payload.get("audience") if isinstance(payload.get("audience"), dict) else None,
+                        metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+                    )
+                except (KeyError, PermissionError, ValueError) as exc:
+                    self.write_message(json.dumps({"event_type": "error", "error": str(exc)}))
+                    return
+                self.write_message(json.dumps({"event_type": "ack", "payload": message_payload}))
+                return
+        except Exception as exc:
+            import logging
+            logging.error('WebSocket internal error in ConstellationWebSocket', exc_info=True)
+            self.write_message(json.dumps({"event_type": "error", "error": "Internal server error"}))
             return
         self.write_message(json.dumps({"event_type": "error", "error": f"Unsupported action: {action}"}))
 
