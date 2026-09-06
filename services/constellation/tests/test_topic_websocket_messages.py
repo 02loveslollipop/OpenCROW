@@ -52,3 +52,52 @@ def test_invalid_membership_still_closes_connection(ws, member, code):
     ws.on_message('{"action": "ping"}')
     assert ws.close.call_args.kwargs["code"] == code
     ws.write_message.assert_not_called()
+
+
+@pytest.mark.parametrize("method, action", [
+    ("get_member", "ping"),
+    ("touch_member", "heartbeat"),
+    ("send_message", "send"),
+])
+def test_unexpected_storage_errors_are_logged_and_masked(ws, caplog, method, action):
+    storage_method = getattr(ws.app_state.storage, method)
+    storage_method.side_effect = RuntimeError("private database detail")
+    ws.on_message(json.dumps({"action": action}))
+    assert json.loads(ws.write_message.call_args.args[0]) == {
+        "event_type": "error", "error": "Internal server error",
+    }
+    assert "private database detail" in caplog.text
+    assert any(record.exc_info for record in caplog.records)
+    ws.close.assert_not_called()
+    storage_method.side_effect = None
+    ws.on_message('{"action": "ping"}')
+    assert json.loads(ws.write_message.call_args.args[0]) == {"event_type": "pong"}
+
+
+@pytest.mark.parametrize("error", [KeyError("missing"), PermissionError("denied"), ValueError("invalid")])
+def test_expected_send_errors_preserve_response(ws, caplog, error):
+    ws.app_state.storage.send_message.side_effect = error
+    ws.on_message('{"action": "send"}')
+    assert json.loads(ws.write_message.call_args.args[0]) == {
+        "event_type": "error", "error": str(error),
+    }
+    assert not caplog.records
+
+
+def test_missing_heartbeat_member_preserves_response(ws):
+    ws.app_state.storage.touch_member.side_effect = KeyError("missing")
+    ws.on_message('{"action": "heartbeat"}')
+    assert json.loads(ws.write_message.call_args.args[0]) == {
+        "event_type": "error", "error": "Unknown member",
+    }
+
+
+@pytest.mark.parametrize("message, error", [
+    ("{", "Invalid JSON payload"),
+    ('{"action": "unknown"}', "Unsupported action: unknown"),
+])
+def test_invalid_messages_preserve_response(ws, message, error):
+    ws.on_message(message)
+    assert json.loads(ws.write_message.call_args.args[0]) == {
+        "event_type": "error", "error": error,
+    }
