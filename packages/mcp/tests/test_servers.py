@@ -18,6 +18,7 @@ SERVER_MODULES = (
     "opencrow_stego_mcp",
     "opencrow_utility_mcp",
     "opencrow_web_mcp",
+    "opencrow_agy_mcp",
 )
 
 
