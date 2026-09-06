@@ -966,8 +966,7 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
                     return
                 self.write_message(json.dumps({"event_type": "ack", "payload": message_payload}))
                 return
-        except Exception as exc:
-            import logging
+        except Exception:
             logging.error('WebSocket internal error in ConstellationWebSocket', exc_info=True)
             self.write_message(json.dumps({"event_type": "error", "error": "Internal server error"}))
             return
