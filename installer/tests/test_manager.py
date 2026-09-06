@@ -105,11 +105,12 @@ def test_conflicting_config_is_backed_up_and_non_opencrow_hooks_survive(tmp_path
     assert Path(state["config_backups"][0]["backup"]).is_file()
 
 
-def test_codex_merge_merges_without_duplicating_features(tmp_path: Path) -> None:
+@pytest.mark.parametrize("extra_config", ["", "\n[other]\nhooks = false\n"])
+def test_codex_merge_merges_without_duplicating_features(tmp_path: Path, extra_config: str) -> None:
     paths = paths_for(tmp_path)
     codex_config = paths.home / ".codex/config.toml"
     codex_config.parent.mkdir(parents=True)
-    codex_config.write_text("model = \"gpt-5.5\"\n\n[features]\nimage_detail_original = true\n")
+    codex_config.write_text("model = \"gpt-5.5\"\n\n[features]\nimage_detail_original = true\n" + extra_config)
 
     engine = StateEngine(paths)
     engine.install(source=REPOSITORY, mode="skills", agents=["codex"])

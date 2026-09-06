@@ -624,9 +624,16 @@ class StateEngine:
         pattern = re.compile(re.escape(MANAGED_TOML_START) + r".*?" + re.escape(MANAGED_TOML_END), re.DOTALL)
         text = pattern.sub("", text).rstrip()
         fragment = (self.paths.current / "integrations/codex/config.toml.fragment").read_text(encoding="utf-8").strip()
-        if re.search(r"^\s*\[\s*features\s*\](?:\s*#.*)?$", text, re.MULTILINE):
-            if not re.search(r"^\s*hooks\s*=", text, re.MULTILINE):
-                text = re.sub(r"(^\s*\[\s*features\s*\](?:\s*#.*)?$)", r"\1\nhooks = true", text, count=1, flags=re.MULTILINE)
+        features = re.search(
+            r"^[ \t]*\[[ \t]*features[ \t]*\][ \t]*(?:#[^\n]*)?$"
+            r"(?P<body>.*?)(?=^[ \t]*\[|\Z)",
+            text,
+            re.MULTILINE | re.DOTALL,
+        )
+        if features:
+            if not re.search(r"^[ \t]*hooks[ \t]*=", features.group("body"), re.MULTILINE):
+                insertion = features.start("body")
+                text = text[:insertion] + "\nhooks = true" + text[insertion:]
             fragment = re.sub(r"\[\s*features\s*\]\s*\nhooks\s*=\s*true\s*", "", fragment).strip()
         atomic_text(config, text + ("\n\n" if text else "") + MANAGED_TOML_START + "\n" + fragment + "\n" + MANAGED_TOML_END + "\n")
         incoming = json.loads((self.paths.current / "integrations/codex/hooks.json").read_text(encoding="utf-8"))

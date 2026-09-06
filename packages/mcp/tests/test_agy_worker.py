@@ -41,7 +41,7 @@ def test_agy_worker_execute_mock_success(tmp_path: Path) -> None:
         "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
     }
 
-    with patch.object(
+    with patch.object(opencrow_agy_mcp, "command_exists", return_value=True), patch.object(
         opencrow_agy_mcp,
         "_run_agy_turn",
         return_value=(True, mock_payload, json.dumps(mock_payload), "", 0),
@@ -78,7 +78,7 @@ def test_agy_worker_chat_mock_continuation(tmp_path: Path) -> None:
         "usage": {"input_tokens": 200, "output_tokens": 80, "total_tokens": 280},
     }
 
-    with patch.object(
+    with patch.object(opencrow_agy_mcp, "command_exists", return_value=True), patch.object(
         opencrow_agy_mcp,
         "_run_agy_turn",
         return_value=(True, mock_payload, json.dumps(mock_payload), "", 0),
@@ -112,3 +112,20 @@ def test_agy_worker_session_status_and_stop() -> None:
     assert stop["ok"] is True
     assert stop["observations"][0]["unregistered"] is True
     assert "session-abc" not in opencrow_agy_mcp._SESSIONS
+
+
+@pytest.mark.parametrize("operation, arguments", [
+    ("agy_execute", {"task": "Create sample.py"}),
+    ("agy_chat", {"conversation_id": "missing-cli", "message": "Continue"}),
+])
+def test_agy_worker_missing_dependency(operation, arguments, tmp_path: Path) -> None:
+    arguments = {**arguments, "workspace": str(tmp_path)}
+    with patch.object(opencrow_agy_mcp, "command_exists", return_value=False), patch.object(
+        opencrow_agy_mcp, "_run_agy_turn"
+    ) as run_turn:
+        result = getattr(opencrow_agy_mcp, operation)(arguments)
+    assert result["ok"] is False
+    assert result["operation"] == operation
+    assert result["exit_code"] == 127
+    assert "agy" in result["summary"]
+    run_turn.assert_not_called()

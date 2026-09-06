@@ -203,7 +203,6 @@ def agy_execute(arguments: dict[str, object]) -> dict[str, object]:
             toolbox=TOOLBOX_ID,
             operation="agy_execute",
             dependency="agy",
-            instructions="Antigravity CLI (agy) is not installed in PATH. Install agy before using this worker.",
             inputs=arguments,
         )
 
@@ -306,7 +305,6 @@ def agy_chat(arguments: dict[str, object]) -> dict[str, object]:
             toolbox=TOOLBOX_ID,
             operation="agy_chat",
             dependency="agy",
-            instructions="Antigravity CLI (agy) is not installed in PATH.",
             inputs=arguments,
         )
 
