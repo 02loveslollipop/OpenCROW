@@ -15,6 +15,7 @@ This document defines the human-facing naming convention for OpenCROW skills out
 - `reverse-shell-async` -> `OpenCROW I/O - Reverse Shell Async`
 - `ssh-async` -> `OpenCROW I/O - SSH Async`
 - `sagemath` -> `OpenCROW Runner - SageMath`
+- `agy-worker` -> `OpenCROW Runner - AGY Worker`
 
 ## Notes
 
