@@ -1,6 +1,7 @@
 """Real subprocess tests with deterministic CLI providers, without model credentials."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import itertools
 import json
 import os
@@ -8,6 +9,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 import pytest
@@ -55,6 +57,9 @@ elif case == "question":
 else:
     pathlib.Path("result.txt").write_text(provider)
     if case != "no_checkpoint": report("checkpoint", "Created result.txt; verified its contents; no remaining work")
+if case == "commit":
+    subprocess.run(["git", "add", "."], check=True, stdout=subprocess.DEVNULL)
+    subprocess.run(["git", "commit", "-m", "worker change"], check=True, stdout=subprocess.DEVNULL)
 if case == "malformed":
     print("not-json", flush=True)
     print("[]", flush=True)
@@ -470,3 +475,145 @@ def test_large_unicode_tasks_use_retained_prompt_file(runner, tmp_path, provider
     assert len(invocation["prompt"].encode()) < 64000
     assert result["artifacts"]["prompt.txt"] in invocation["prompt"]
     assert task in Path(result["artifacts"]["prompt.txt"]).read_text()
+
+
+@pytest.mark.parametrize("operation", ["followup", "handoff", "reply"])
+def test_provider_preflight_does_not_block_other_workers_reporting(runner, tmp_path, monkeypatch, operation):
+    import opencrow_worker_runner as module
+    if operation == "reply":
+        monkeypatch.setenv("OPENCROW_FAKE_CASE", "question")
+    target = start(runner, tmp_path)
+    target_id = target["worker_id"]
+    pending = wait(runner, target_id, "waiting_for_instructions" if operation == "reply" else "completed")
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", "hang")
+    other = start(runner, tmp_path)
+    wait(runner, other["worker_id"], "running", active=True)
+    with runner.connect() as db:
+        other_token = runner.load(db, other["worker_id"])["token"]
+    entered, release = threading.Event(), threading.Event()
+    original_probe = module.probe
+
+    def slow_probe(*args, **kwargs):
+        result = original_probe(*args, **kwargs)
+        entered.set()
+        assert release.wait(5), "test did not release provider preflight"
+        return result
+
+    monkeypatch.setattr(module, "probe", slow_probe)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        if operation == "reply":
+            future = pool.submit(runner.reply, target_id, pending["pending_question"], "Use hello")
+        else:
+            future = pool.submit(runner.continuation, target_id, {"provider": "opencode", "message": "Continue"}, handoff=operation == "handoff")
+        try:
+            assert entered.wait(5)
+            # A separate helper process must be able to write while preflight
+            # is paused; a probe under BEGIN IMMEDIATE makes this time out.
+            result = subprocess.run(
+                [sys.executable, os.environ["OPENCROW_FAKE_RUNNER"], "report", "progress", "independent progress"],
+                env={**os.environ, "OPENCROW_WORKER_ID": other["worker_id"], "OPENCROW_WORKER_TURN_TOKEN": other_token},
+                capture_output=True, text=True, timeout=2,
+            )
+            assert result.returncode == 0, result.stderr
+        finally:
+            release.set()
+        future.result(timeout=10)
+    assert any(event["data"].get("message") == "independent progress" for event in runner.events(other["worker_id"])["events"])
+
+
+@pytest.mark.parametrize("operation", ["followup", "reply", "cancel_reply"])
+def test_turn_and_question_are_rechecked_after_unlocked_preflight(runner, tmp_path, monkeypatch, operation):
+    import opencrow_worker_runner as module
+    question = operation != "followup"
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", "question" if question else "success")
+    worker = start(runner, tmp_path)
+    worker_id = worker["worker_id"]
+    pending = wait(runner, worker_id, "waiting_for_instructions" if question else "completed")
+    entered, release = threading.Event(), threading.Event()
+    original_probe = module.probe
+
+    def slow_probe(*args, **kwargs):
+        result = original_probe(*args, **kwargs)
+        if threading.current_thread().name.startswith("blocked-probe"):
+            entered.set()
+            assert release.wait(5)
+        return result
+
+    monkeypatch.setattr(module, "probe", slow_probe)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="blocked-probe") as pool:
+        if question:
+            future = pool.submit(runner.reply, worker_id, pending["pending_question"], "Use hello")
+        else:
+            future = pool.submit(runner.continuation, worker_id, {"message": "Old request"})
+        try:
+            assert entered.wait(5)
+            if operation == "cancel_reply":
+                runner.stop(worker_id)
+            elif question:
+                runner.reply(worker_id, pending["pending_question"], "Use hello")
+            else:
+                runner.continuation(worker_id, {"message": "New request"})
+        finally:
+            release.set()
+        if operation == "reply":
+            future.result(timeout=10)  # Identical concurrent reply is idempotent.
+        else:
+            with pytest.raises(WorkerError, match="not waiting|changed during"):
+                future.result(timeout=10)
+    finished = wait(runner, worker_id, "cancelled" if operation == "cancel_reply" else "completed")
+    assert finished["turn"] == (1 if operation == "cancel_reply" else 2)
+    assert len((tmp_path / "invocations.jsonl").read_text().splitlines()) == finished["turn"]
+
+
+def test_reply_refreshes_provider_path_and_version_after_restart(runner, tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", "question")
+    worker = start(runner, tmp_path)
+    pending = wait(runner, worker["worker_id"], "waiting_for_instructions")
+    old_bin = tmp_path / "bin"
+    new_bin = tmp_path / "new-bin"
+    old_bin.rename(new_bin)
+    executable = new_bin / "codex"
+    executable.write_text(executable.read_text().replace("test-1.0", "test-2.0"))
+    monkeypatch.setenv("PATH", str(new_bin) + os.pathsep + os.environ["PATH"])
+    restarted = Runner()
+    resumed = restarted.reply(worker["worker_id"], pending["pending_question"], "Use hello")
+    finished = wait(restarted, worker["worker_id"])
+    assert resumed["provider_version"] == finished["provider_version"] == "codex test-2.0"
+    with restarted.connect() as db:
+        assert restarted.load(db, worker["worker_id"])["executable"] == str(executable)
+    assert (tmp_path / "answer.txt").read_text() == "hello"
+
+
+@pytest.mark.parametrize("operation", ["followup", "failed_followup", "reply", "handoff"])
+def test_reserving_next_turn_clears_terminal_metadata(runner, tmp_path, monkeypatch, operation):
+    case = "question" if operation == "reply" else "failure" if operation == "failed_followup" else "success"
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", case)
+    worker = start(runner, tmp_path)
+    expected = "waiting_for_instructions" if operation == "reply" else "failed" if operation == "failed_followup" else "completed"
+    prior = wait(runner, worker["worker_id"], expected)
+    assert prior["finished_at"] is not None
+    assert prior["exit_code"] == (1 if operation == "failed_followup" else 0)
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", "hang")
+    if operation == "reply":
+        reserved = runner.reply(worker["worker_id"], prior["pending_question"], "Use hello")
+    else:
+        reserved = runner.continuation(worker["worker_id"], {"provider": "opencode", "message": "Continue"}, handoff=operation == "handoff")
+    assert reserved["state"] == "starting"
+    running = wait(runner, worker["worker_id"], "running", active=True)
+    for current in (reserved, running):
+        assert current["finished_at"] is None
+        assert current["exit_code"] is None
+
+
+def test_shared_review_retains_committed_worker_changes(runner, tmp_path, monkeypatch):
+    directory = repo(tmp_path)
+    starting_commit = git(directory, "rev-parse", "HEAD")
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", "commit")
+    worker = runner.start({"task": "Write result.txt and commit the changes", "provider": "codex",
+                           "workspace": str(directory), "workspace_mode": "shared"})
+    finished = wait(runner, worker["worker_id"])
+    review = json.loads(Path(finished["artifacts"]["review.json"]).read_text())
+    assert review["status"] == ""
+    assert review["head"] != starting_commit
+    assert review["base_commit"] == worker["base_commit"] == starting_commit
+    assert "result.txt" in review["diff_stat"]

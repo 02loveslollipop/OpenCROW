@@ -154,7 +154,8 @@ class Runner:
     def reserve(self, db, worker, prompt):
         worker.update(turn=worker.get("turn", 0) + 1, token=uuid.uuid4().hex, prompt=prompt,
                       state="starting", active=True, cancel_requested=False, supervisor=None, process=None,
-                      error=None, response="", progress=None, usage=None, reported_model=None, started_at=time.time())
+                      error=None, response="", progress=None, usage=None, reported_model=None, started_at=time.time(),
+                      finished_at=None, exit_code=None)
         worker["turn_artifacts"] = str(self.root / worker["worker_id"] / f"turn-{worker['turn']}")
         self.event(db, worker, "turn_starting", {"provider": worker["provider"], "model": worker["model"],
                                                 "model_source": "explicit" if worker["model"] else "provider_default"})
@@ -187,7 +188,8 @@ class Runner:
         repo = git(source, "rev-parse", "--show-toplevel", check=False)
         result = {"source_workspace": str(source), "workspace": str(source), "workspace_mode": "shared",
                   "repository": repo, "branch": git(source, "branch", "--show-current", check=False) if repo else None,
-                  "base_commit": None, "excluded_local_edits": False}
+                  "base_commit": git(source, "rev-parse", "--verify", "HEAD^{commit}", check=False) if repo else None,
+                  "excluded_local_edits": False}
         if mode == "shared" or (mode == "auto" and repo is None):
             if base_ref is not None:
                 raise WorkerError("base_ref is only valid when creating a worktree")
@@ -292,8 +294,16 @@ class Runner:
             config = settings(args.get("provider") if handoff else worker["provider"],
                               args.get("model") if handoff else args.get("model", worker["model"]),
                               args.get("effort") if handoff else args.get("effort", worker["effort"]))
-            availability = probe(**config)
             timeout = timeout_input(args.get("timeout_sec", worker["timeout_sec"]))
+            expected_turn = (worker["token"], worker["state"])
+        # CLI discovery can take longer than SQLite's busy timeout. Do not
+        # prevent other workers from recording events while it runs.
+        availability = probe(**config)
+        with self.transaction() as db:
+            worker = self.load(db, worker_id)
+            self.reconcile(db, worker)
+            if worker["active"] or (worker["token"], worker["state"]) != expected_turn:
+                raise WorkerError("Worker changed during provider preflight; retry the request")
             if handoff:
                 checkpoint = prompt or worker.get("checkpoint")
                 if not checkpoint or (prompt is None and worker.get("checkpoint_turn") != worker["turn"]):
@@ -321,31 +331,41 @@ class Runner:
     def reply(self, worker_id, question_id, message):
         message = text_input(message, "message")
         question_id = nonempty(question_id, "question_id")
-        with self.transaction() as db:
-            worker = self.load(db, worker_id)
-            self.reconcile(db, worker)
-            question = db.execute("SELECT * FROM questions WHERE id=? AND worker_id=?", (question_id, worker_id)).fetchone()
-            if question is None:
-                raise WorkerError("Unknown question for this worker")
-            if question["reply"] is not None:
-                if question["reply"] != message:
-                    raise WorkerError("Question already has a different reply")
-                return self.public(worker)
-            if question["consumed"] or worker["pending_question"] != question_id:
-                raise WorkerError("Question is no longer pending")
-            if worker["state"] != "waiting_for_instructions":
-                raise WorkerError("Worker is not waiting for instructions; use a checkpoint handoff after interruption")
-            if not worker["active"]:
-                if not worker.get("native_session_id"):
+        availability = None
+        expected_token = None
+        while True:
+            with self.transaction() as db:
+                worker = self.load(db, worker_id)
+                self.reconcile(db, worker)
+                question = db.execute("SELECT * FROM questions WHERE id=? AND worker_id=?", (question_id, worker_id)).fetchone()
+                if question is None:
+                    raise WorkerError("Unknown question for this worker")
+                if question["reply"] is not None:
+                    if question["reply"] != message:
+                        raise WorkerError("Question already has a different reply")
+                    return self.public(worker)
+                if question["consumed"] or worker["pending_question"] != question_id:
+                    raise WorkerError("Question is no longer pending")
+                if worker["state"] != "waiting_for_instructions":
+                    raise WorkerError("Worker is not waiting for instructions; use a checkpoint handoff after interruption")
+                if not worker["active"] and not worker.get("native_session_id"):
                     raise WorkerError("Cannot resume without a native session ID; use checkpoint handoff")
-                probe(worker["provider"], worker["model"], worker["effort"])
-            db.execute("UPDATE questions SET reply=? WHERE id=?", (message, question_id))
-            self.event(db, worker, "reply", {"question_id": question_id, "message": message})
-            if not worker["active"]:
-                self.consume_reply(db, worker)
-                self.launch(db, worker)
-            self.save(db, worker)
-            return self.public(worker)
+                if availability is not None and worker["token"] != expected_token:
+                    raise WorkerError("Worker changed during provider preflight; retry the request")
+                if worker["active"] or availability is not None:
+                    if availability is not None:
+                        worker.update(executable=availability["executable"], provider_version=availability["version"])
+                    db.execute("UPDATE questions SET reply=? WHERE id=?", (message, question_id))
+                    self.event(db, worker, "reply", {"question_id": question_id, "message": message})
+                    if not worker["active"]:
+                        self.consume_reply(db, worker)
+                        self.launch(db, worker)
+                    self.save(db, worker)
+                    return self.public(worker)
+                expected_token = worker["token"]
+            # Re-read the question and turn after the probe: another caller
+            # may have answered, cancelled, or handed off in the meantime.
+            availability = probe(worker["provider"], worker["model"], worker["effort"])
 
     def consume_reply(self, db, worker):
         question = db.execute("SELECT * FROM questions WHERE id=?", (worker["pending_question"],)).fetchone()
@@ -415,6 +435,7 @@ class Runner:
         workspace = worker["workspace"]
         return {"workspace": workspace, "branch": git(workspace, "branch", "--show-current", check=False),
                 "head": git(workspace, "rev-parse", "HEAD", check=False),
+                "base_commit": worker.get("base_commit"),
                 "status": git(workspace, "status", "--porcelain", check=False),
                 "diff_stat": git(workspace, "diff", "--stat", worker.get("base_commit") or "HEAD", check=False),
                 "checkpoint": worker.get("checkpoint"), "checkpoint_turn": worker.get("checkpoint_turn"), "response": worker.get("response"),
