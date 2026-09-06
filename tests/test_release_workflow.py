@@ -6,15 +6,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_release_workflow_gates_publication_on_real_provider_runtime_skills() -> None:
+def test_release_workflow_gates_publication_on_full_install_and_update() -> None:
     workflow = (ROOT / ".github/workflows/deploy-release.yml").read_text(encoding="utf-8")
-    assert "actions/setup-node@v7" in workflow
-    assert "npm install --global @openai/codex opencode-ai @anthropic-ai/claude-code" in workflow
-    assert "https://antigravity.google/cli/install.sh" in workflow
-    runtime_gate = "bash scripts/test_provider_runtime_skills.sh dist/opencrow-skills.zip"
-    assert runtime_gate in workflow
-    assert workflow.index("Build verified release assets") < workflow.index(runtime_gate)
-    assert workflow.index(runtime_gate) < workflow.index("Create draft GitHub Release")
+    gate = "bash scripts/test_release_installation.sh"
+    assert 'tags: ["*.*.*"]' in workflow
+    assert "pull_request:" not in workflow and "schedule:" not in workflow
+    assert workflow.index("Build verified release assets") < workflow.index("fetch-previous") < workflow.index(gate)
+    assert workflow.index(gate) < workflow.index("Retain release installation evidence") < workflow.index("Create draft GitHub Release")
+    assert "if: always()" in workflow
+    assert '"$RUNNER_TEMP/previous-stable/opencrow-full.zip"' in workflow
+    assert "test_provider_runtime_skills.sh" not in workflow
+    for name in ("pr-verification.yml", "system-install-matrix.yml", "provider-compatibility.yml"):
+        assert gate not in (ROOT / ".github/workflows" / name).read_text()
 
 
 def test_scheduled_provider_workflow_uses_the_release_runtime_gate() -> None:

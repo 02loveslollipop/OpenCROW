@@ -13,6 +13,7 @@ import sys
 import tarfile
 import termios
 import threading
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -102,6 +103,29 @@ def test_conflicting_config_is_backed_up_and_non_opencrow_hooks_survive(tmp_path
     assert "opencrow-lifecycle-hook stale" not in encoded
     assert state["config_backups"]
     assert Path(state["config_backups"][0]["backup"]).is_file()
+
+
+@pytest.mark.parametrize("extra_config", ["", "\n[other]\nhooks = false\n"])
+def test_codex_merge_merges_without_duplicating_features(tmp_path: Path, extra_config: str) -> None:
+    paths = paths_for(tmp_path)
+    codex_config = paths.home / ".codex/config.toml"
+    codex_config.parent.mkdir(parents=True)
+    codex_config.write_text("model = \"gpt-5.5\"\n\n[features]\nimage_detail_original = true\n" + extra_config)
+
+    engine = StateEngine(paths)
+    engine.install(source=REPOSITORY, mode="skills", agents=["codex"])
+
+    parsed = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+    assert parsed["features"]["image_detail_original"] is True
+    assert parsed["features"]["hooks"] is True
+    assert parsed["mcp_servers"]["opencrow-lifecycle"]["command"] == "opencrow-lifecycle-mcp"
+
+    # Idempotent re-run / update check
+    engine.install(source=REPOSITORY, mode="skills", agents=["codex"])
+    reparsed = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+    assert reparsed["features"]["image_detail_original"] is True
+    assert reparsed["features"]["hooks"] is True
+    assert reparsed["mcp_servers"]["opencrow-lifecycle"]["command"] == "opencrow-lifecycle-mcp"
 
 
 def test_repair_and_uninstall_touch_only_managed_files(tmp_path: Path) -> None:
@@ -827,3 +851,20 @@ def test_install_script_agents_csv_formatting() -> None:
     assert "codex}" not in process.stdout
     assert "utility}" not in process.stdout
 
+
+
+def test_full_install_worker_launcher_and_skill(tmp_path: Path) -> None:
+    paths = paths_for(tmp_path)
+    engine = StateEngine(paths)
+    engine.install(source=REPOSITORY, mode="full", agents=["codex"], toolboxes=["utility"])
+    launcher = paths.bin / "opencrow-worker-mcp"
+    assert launcher.is_file()
+    assert (paths.home / ".codex/skills/agent-worker").is_symlink()
+    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    result = subprocess.run([str(launcher)], input=request + "\n", text=True, capture_output=True,
+                            env={**os.environ, "OPENCROW_PYTHON": sys.executable}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    tools = {tool["name"] for tool in json.loads(result.stdout)["result"]["tools"]}
+    assert {"worker_start", "worker_reply", "worker_handoff"} <= tools
+    engine.uninstall(purge_env=False, purge_system=False, purge_agent_clis=False)
+    assert not launcher.exists()

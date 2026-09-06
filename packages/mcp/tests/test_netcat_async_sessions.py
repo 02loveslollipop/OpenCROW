@@ -377,4 +377,4 @@ def test_reverse_shell_skill_is_provider_neutral_and_complete() -> None:
     assert (REPOSITORY / "skills/reverse-shell-async/references/operations.md").is_file()
     assert os.access(RSX, os.X_OK)
     skills = list((REPOSITORY / "skills").glob("*/SKILL.md"))
-    assert len(skills) == 14
+    assert len(skills) == 16

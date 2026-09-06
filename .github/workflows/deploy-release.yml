@@ -14,6 +14,7 @@ concurrency:
 jobs:
   validate-build-publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
       PORTABLE_X86_URL: ${{ vars.PORTABLE_PYTHON_X86_URL }}
@@ -28,11 +29,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          package-manager-cache: false
 
       - name: Validate stable annotated tag on release branch
         shell: bash
@@ -55,9 +51,6 @@ jobs:
           make test
           make smoke
           python scripts/validate_docs.py --check-external
-
-      - name: Exercise actual full and skills-only installs across supported distro families
-        run: bash scripts/test_distro_matrix.sh
 
       - name: Fetch and verify portable CPython inputs
         shell: bash
@@ -83,14 +76,26 @@ jobs:
             --require-release-ready
           git diff --exit-code
 
-      - name: Install current provider CLIs through vendor-owned channels
-        run: |
-          npm install --global @openai/codex opencode-ai @anthropic-ai/claude-code
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
-          printf '%s/.local/bin\n' "$HOME" >> "$GITHUB_PATH"
+      - name: Fetch verified previous stable release for upgrade validation
+        run: python scripts/release_installation.py fetch-previous "$GITHUB_REF_NAME" "$RUNNER_TEMP/previous-stable"
 
-      - name: Test packaged skills on every trusted provider runtime
-        run: bash scripts/test_provider_runtime_skills.sh dist/opencrow-skills.zip
+      - name: Validate full release installs, updates, and agent startup
+        run: |
+          bash scripts/test_release_installation.sh \
+            dist/opencrow-full.zip \
+            "$RUNNER_TEMP/previous-stable/opencrow-full.zip" \
+            "$RUNNER_TEMP/release-install-reports"
+
+      - name: Retain release installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-installation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/release-install-reports
+            ${{ runner.temp }}/previous-stable/baseline.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Create draft GitHub Release and upload assets
         shell: bash
