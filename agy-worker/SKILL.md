@@ -5,6 +5,8 @@ description: Spawn, instruct, and supervise Google Antigravity (agy) as an execu
 
 # OpenCROW Runner - AGY Worker
 
+For asynchronous supervision, durable questions/replies, worktrees, and additional providers, use [agent-worker](../agent-worker/SKILL.md) with `opencrow-worker-mcp`. The tools below retain their synchronous behavior.
+
 ## Runtime preflight
 
 Probe required commands with `command -v` before use. The Antigravity CLI (`agy`) must be installed in PATH. If missing, report that `agy` is not installed on the host.
