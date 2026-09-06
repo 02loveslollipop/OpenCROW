@@ -928,6 +928,9 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         except json.JSONDecodeError:
             self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload"}))
             return
+        if not isinstance(payload, dict):
+            self.write_message(json.dumps({"event_type": "error", "error": "Payload must be a JSON object"}))
+            return
         action = str(payload.get("action", "ping")).strip()
         current_member = self.app_state.storage.get_member(self.member_id)
         if current_member is None:
