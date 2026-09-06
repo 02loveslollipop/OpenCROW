@@ -95,3 +95,15 @@ Resource reads should return structured text or JSON content with stable URIs an
 ## Source ownership
 
 Common protocol and execution code lives in `packages/mcp/core/`; typed domain servers live in `packages/mcp/servers/`. Provider integrations register PATH-resolved launchers and do not maintain provider-specific copies of MCP code.
+
+## Standalone worker runner
+
+`opencrow-worker-mcp` delegates to CLI adapters in `opencrow_worker_providers.py` and durable local supervision in `opencrow_worker_runner.py`. It is independent of Constellation's SDK adapters and leaves the synchronous AGY tools compatible.
+
+The MCP process records requests and launches detached supervisors. A supervisor owns one provider process group at a time, captures output, and stores normalized events and native session IDs. Worker records and question/reply transactions are persisted in SQLite; replies are correlated by question ID and consumed once. The worker-side helper publishes structured messages using an injected turn identity. Stale reports cannot modify a later turn. This is coordination on a trusted local host, not an isolation boundary between hostile users.
+
+Worker states are `starting`, `running`, `waiting_for_instructions`, `completed`, `failed`, `cancelled`, and `interrupted`. `active` distinguishes a question published during an executing turn from a yielded worker awaiting a reply. `completed` requires a provider terminal success event and a successful exit; an MCP success envelope alone does not imply execution success. Native model reports are separate from requested model settings. Missing usage/model reports remain unknown.
+
+Git worktrees use a unique branch per logical worker. Shared mode permits multiple workers on the same files, while a single logical worker cannot execute overlapping turns. Checkpoint handoff retains workspace and provider history but starts a fresh native conversation. Processes, branches, and worktrees are never silently adopted, replayed, integrated, or deleted.
+
+Deterministic tests use fake CLI executables and real subprocesses. Optional authenticated checks can be enabled with `OPENCROW_WORKER_LIVE_MODELS`, a JSON object mapping provider names to explicit model IDs, when running `packages/mcp/tests/test_worker_live.py`. They consume model quota, use disposable Git repositories/worktrees, and verify question/reply and native continuation. Ordinary CI skips these checks.

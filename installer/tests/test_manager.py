@@ -851,3 +851,20 @@ def test_install_script_agents_csv_formatting() -> None:
     assert "codex}" not in process.stdout
     assert "utility}" not in process.stdout
 
+
+
+def test_full_install_worker_launcher_and_skill(tmp_path: Path) -> None:
+    paths = paths_for(tmp_path)
+    engine = StateEngine(paths)
+    engine.install(source=REPOSITORY, mode="full", agents=["codex"], toolboxes=["utility"])
+    launcher = paths.bin / "opencrow-worker-mcp"
+    assert launcher.is_file()
+    assert (paths.home / ".codex/skills/agent-worker").is_symlink()
+    request = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    result = subprocess.run([str(launcher)], input=request + "\n", text=True, capture_output=True,
+                            env={**os.environ, "OPENCROW_PYTHON": sys.executable}, timeout=10)
+    assert result.returncode == 0, result.stderr
+    tools = {tool["name"] for tool in json.loads(result.stdout)["result"]["tools"]}
+    assert {"worker_start", "worker_reply", "worker_handoff"} <= tools
+    engine.uninstall(purge_env=False, purge_system=False, purge_agent_clis=False)
+    assert not launcher.exists()
