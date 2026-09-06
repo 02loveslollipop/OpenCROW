@@ -507,7 +507,7 @@ class StateEngine:
                 stem = server_names.get(toolbox)
                 if stem:
                     self._write_launcher(f"opencrow-{stem}-mcp", str(servers / f"opencrow_{stem}_mcp.py"), managed)
-            for stem in ("netcat", "ssh", "minecraft", "agy"):
+            for stem in ("netcat", "ssh", "minecraft", "agy", "worker"):
                 self._write_launcher(f"opencrow-{stem}-mcp", str(servers / f"opencrow_{stem}_mcp.py"), managed)
             self._write_constellation_launcher("opencrow-constellation-runtime", "runtime", managed)
             self._write_constellation_launcher("opencrow-constellation-backend", "backend", managed)
