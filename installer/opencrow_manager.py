@@ -624,10 +624,10 @@ class StateEngine:
         pattern = re.compile(re.escape(MANAGED_TOML_START) + r".*?" + re.escape(MANAGED_TOML_END), re.DOTALL)
         text = pattern.sub("", text).rstrip()
         fragment = (self.paths.current / "integrations/codex/config.toml.fragment").read_text(encoding="utf-8").strip()
-        if re.search(r"^\s*\[features\]\s*$", text, re.MULTILINE):
+        if re.search(r"^\s*\[\s*features\s*\](?:\s*#.*)?$", text, re.MULTILINE):
             if not re.search(r"^\s*hooks\s*=", text, re.MULTILINE):
-                text = re.sub(r"(^\s*\[features\]\s*$)", r"\1\nhooks = true", text, count=1, flags=re.MULTILINE)
-            fragment = re.sub(r"\[features\]\s*\nhooks\s*=\s*true\s*", "", fragment).strip()
+                text = re.sub(r"(^\s*\[\s*features\s*\](?:\s*#.*)?$)", r"\1\nhooks = true", text, count=1, flags=re.MULTILINE)
+            fragment = re.sub(r"\[\s*features\s*\]\s*\nhooks\s*=\s*true\s*", "", fragment).strip()
         atomic_text(config, text + ("\n\n" if text else "") + MANAGED_TOML_START + "\n" + fragment + "\n" + MANAGED_TOML_END + "\n")
         incoming = json.loads((self.paths.current / "integrations/codex/hooks.json").read_text(encoding="utf-8"))
         existing: dict[str, Any] = {}

@@ -13,6 +13,7 @@ import sys
 import tarfile
 import termios
 import threading
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -102,6 +103,28 @@ def test_conflicting_config_is_backed_up_and_non_opencrow_hooks_survive(tmp_path
     assert "opencrow-lifecycle-hook stale" not in encoded
     assert state["config_backups"]
     assert Path(state["config_backups"][0]["backup"]).is_file()
+
+
+def test_codex_merge_merges_without_duplicating_features(tmp_path: Path) -> None:
+    paths = paths_for(tmp_path)
+    codex_config = paths.home / ".codex/config.toml"
+    codex_config.parent.mkdir(parents=True)
+    codex_config.write_text("model = \"gpt-5.5\"\n\n[features]\nimage_detail_original = true\n")
+
+    engine = StateEngine(paths)
+    engine.install(source=REPOSITORY, mode="skills", agents=["codex"])
+
+    parsed = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+    assert parsed["features"]["image_detail_original"] is True
+    assert parsed["features"]["hooks"] is True
+    assert parsed["mcp_servers"]["opencrow-lifecycle"]["command"] == "opencrow-lifecycle-mcp"
+
+    # Idempotent re-run / update check
+    engine.install(source=REPOSITORY, mode="skills", agents=["codex"])
+    reparsed = tomllib.loads(codex_config.read_text(encoding="utf-8"))
+    assert reparsed["features"]["image_detail_original"] is True
+    assert reparsed["features"]["hooks"] is True
+    assert reparsed["mcp_servers"]["opencrow-lifecycle"]["command"] == "opencrow-lifecycle-mcp"
 
 
 def test_repair_and_uninstall_touch_only_managed_files(tmp_path: Path) -> None:
