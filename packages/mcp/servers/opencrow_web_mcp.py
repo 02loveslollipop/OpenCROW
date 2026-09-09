@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from opencrow_mcp_core import (
     MCPTool,
@@ -29,7 +32,54 @@ OPERATIONS = [
     {"name": "web_discover", "description": "Directory, path, or vhost discovery with ffuf, gobuster, or dirb."},
     {"name": "web_fuzz", "description": "Typed request fuzzing with wfuzz."},
     {"name": "web_sqlmap_scan", "description": "Typed SQL injection automation with sqlmap."},
+    {"name": "burp_probe", "description": "Probe the PortSwigger Burp MCP server (loopback-only, fail-closed)."},
 ]
+
+BURP_MCP_DEFAULT_URL = "http://127.0.0.1:9876"
+BURP_MCP_ENV_VAR = "BURP_MCP_URL"
+BURP_MCP_TIMEOUT_SEC = 5
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _burp_target(arguments: dict[str, object]) -> str:
+    raw = str(arguments.get("url", "") or os.environ.get(BURP_MCP_ENV_VAR, BURP_MCP_DEFAULT_URL)).strip()
+    return raw or BURP_MCP_DEFAULT_URL
+
+
+def burp_probe(arguments: dict[str, object]) -> dict[str, object]:
+    """Fail-closed probe of the Burp MCP server over loopback only (stdlib-only)."""
+    url = _burp_target(arguments)
+    inputs = {"url": url}
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return error_envelope(
+            toolbox=TOOLBOX_ID, operation="burp_probe", summary="Invalid Burp MCP URL.",
+            inputs=inputs, stderr=f"Unparseable URL: {url}", exit_code=2,
+        )
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return error_envelope(
+            toolbox=TOOLBOX_ID, operation="burp_probe", summary="Invalid Burp MCP URL.",
+            inputs=inputs, stderr="URL must be http(s) with a hostname.", exit_code=2,
+        )
+    if parsed.hostname not in _LOOPBACK_HOSTS:
+        return error_envelope(
+            toolbox=TOOLBOX_ID, operation="burp_probe", summary="Burp MCP URL rejected: loopback only.",
+            inputs=inputs, stderr=f"Refusing non-loopback host: {parsed.hostname}", exit_code=2,
+        )
+    try:
+        with urllib.request.urlopen(url, timeout=BURP_MCP_TIMEOUT_SEC) as response:  # noqa: S310
+            status = response.status
+    except Exception as exc:  # fail-closed: unreachable means not available, no traceback
+        return error_envelope(
+            toolbox=TOOLBOX_ID, operation="burp_probe", summary="Burp MCP server unreachable.",
+            inputs=inputs, stderr=f"{type(exc).__name__}: {exc}", exit_code=1,
+        )
+    return success_envelope(
+        toolbox=TOOLBOX_ID, operation="burp_probe",
+        summary="Burp MCP server reachable.",
+        inputs=inputs, observations=[{"url": url, "http_status": status, "reachable": True}],
+    )
 
 
 def _wordlist_error(operation: str, wordlist: Path, inputs: dict[str, object]) -> dict[str, object]:
@@ -50,6 +100,7 @@ def toolbox_verify(arguments: dict[str, object]) -> dict[str, object]:
         {"dependency": "dirb", "available": command_exists("dirb")},
         {"dependency": "wfuzz", "available": command_exists("wfuzz")},
         {"dependency": "sqlmap", "available": command_exists("sqlmap")},
+        {"dependency": "burp-mcp (optional)", "available": burp_probe({})["ok"]},
     ]
     return success_envelope(
         toolbox=TOOLBOX_ID,
@@ -336,6 +387,16 @@ def build_server() -> StdioMCPServer:
                     "additionalProperties": False,
                 },
                 handler=web_fuzz,
+            ),
+            MCPTool(
+                name="burp_probe",
+                description="Probe the PortSwigger Burp MCP server (loopback-only, fail-closed).",
+                input_schema={
+                    "type": "object",
+                    "properties": {"url": {"type": "string"}},
+                    "additionalProperties": False,
+                },
+                handler=burp_probe,
             ),
             MCPTool(
                 name="web_sqlmap_scan",

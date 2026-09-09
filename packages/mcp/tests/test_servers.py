@@ -42,6 +42,57 @@ def test_domain_server_reports_missing_inputs_without_traceback() -> None:
     assert "required" in result["summary"].lower()
 
 
+def test_web_burp_probe_rejects_non_loopback_fail_closed() -> None:
+    module = importlib.import_module("opencrow_web_mcp")
+    result = module.burp_probe({"url": "http://10.0.0.1:9876"})
+    assert result["ok"] is False
+    assert result["exit_code"] == 2
+    assert "loopback" in result["summary"].lower()
+
+
+def test_web_burp_probe_rejects_invalid_scheme() -> None:
+    module = importlib.import_module("opencrow_web_mcp")
+    result = module.burp_probe({"url": "gopher://127.0.0.1:9876"})
+    assert result["ok"] is False
+    assert result["exit_code"] == 2
+
+
+def test_web_burp_probe_unreachable_has_no_traceback() -> None:
+    module = importlib.import_module("opencrow_web_mcp")
+    # Port 9 (discard) on loopback: connection refused, fail-closed without traceback.
+    result = module.burp_probe({"url": "http://127.0.0.1:9"})
+    assert result["ok"] is False
+    assert result["exit_code"] == 1
+    assert "traceback" not in str(result).lower()
+
+
+def test_web_burp_probe_reachable_local_server() -> None:
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    module = importlib.import_module("opencrow_web_mcp")
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            return None
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        result = module.burp_probe({"url": f"http://127.0.0.1:{port}"})
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+    assert result["ok"] is True
+    assert result["observations"][0]["http_status"] == 200
+
+
 def test_netcat_server_exposes_listener_and_raw_send_tools() -> None:
     module = importlib.import_module("opencrow_netcat_mcp")
     server = module.build_server()
