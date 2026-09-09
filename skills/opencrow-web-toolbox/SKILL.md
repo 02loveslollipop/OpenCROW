@@ -1,6 +1,6 @@
 ---
 name: opencrow-web-toolbox
-description: Use the installed web CTF tooling for endpoint discovery, fuzzing, and automated SQL injection workflows. Use when an agent needs `sqlmap`, `gobuster`, `ffuf`, `dirb`, or `wfuzz`, and when full installs may also include manual Burp or ZAP steps.
+description: Use the installed web CTF tooling plus the Burp Suite MCP server when available. Use when an agent needs `sqlmap`, `gobuster`, `ffuf`, `dirb`, `wfuzz`, or Burp proxy-history -> Repeater -> Intruder -> Collaborator flows.
 ---
 
 # OpenCROW Web Toolbox
@@ -25,7 +25,19 @@ Verify the mapped stack:
 python3 scripts/verify_toolkit.py
 ```
 
-## Workflow
+## Burp MCP workflow (proxy history -> Repeater -> Intruder -> Collaborator)
+
+Prefer the Burp MCP server (`burp_*` tools) when configured. Requires the PortSwigger MCP extension enabled in Burp (MCP tab, default `http://127.0.0.1:9876` SSE).
+
+1. Proxy history triage: filter HTTP/WebSocket history with regex, respect the target approval allowlist. Never exfiltrate history outside the approved target.
+2. Repeater: replay and mutate promising requests (HTTP/1.1 and HTTP/2), use encoding utilities (URL, Base64) and random string generation as needed.
+3. Intruder: send the stabilized Repeater request to Intruder for position-based fuzzing.
+4. Collaborator (Pro only): generate payload, inject via Repeater/Intruder, then poll for out-of-band interactions before concluding.
+5. Organizer: store confirmed findings as Organizer entries.
+
+If `burp_*` tools are absent, fall back to CLI discovery/fuzzing below and note Burp MCP as unavailable.
+
+## Workflow (CLI fallback)
 
 1. Start with endpoint and content discovery using `ffuf`, `gobuster`, or `dirb`.
 2. Use `wfuzz` when the problem is parameter fuzzing or more custom request mutation.

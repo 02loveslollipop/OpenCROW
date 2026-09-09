@@ -10,6 +10,13 @@ Use this reference when the task is web discovery, fuzzing, or light exploitatio
 - `wfuzz`: more configurable request and parameter fuzzing.
 - `sqlmap`: automated SQLi testing and exploitation.
 
+## Burp MCP server (PortSwigger BApp)
+
+- Requires Burp MCP extension enabled (`http://127.0.0.1:9876` SSE or packaged stdio proxy).
+- OpenCode config: `mcp.burp = { type: "remote", url: "http://127.0.0.1:9876", oauth: false }`.
+- Flow: proxy history (regex filter) -> Repeater -> Intruder -> Collaborator poll -> Organizer.
+- Respect target approval system; Collaborator is Professional-only.
+
 ## Full-profile manual tools
 
 - `OWASP ZAP`: web proxy and scanner, tracked by the installer as a manual full-profile step.
