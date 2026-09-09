@@ -25,6 +25,16 @@ Verify the mapped stack:
 python3 scripts/verify_toolkit.py
 ```
 
+## Purple guardrails (mandatory)
+
+Fail-closed rules for red-to-purple operation:
+
+1. Scope allowlist required: do not call any `burp_*` tool until the approved target scope is stated (host/port/path). Deny by default; on scope mismatch stop and report.
+2. Least privilege: keep `burp_*` disabled globally (`tools: { "burp_*": false }`), enable per-agent only for the pentest agent.
+3. No history exfiltration: never paste full proxy history outside the approved target; summarize candidates only.
+4. Every confirmed finding must produce: Organizer entry + severity (Critical/High/Medium/Low/Info) + remediation note + reproducible Repeater steps. Findings without remediation are incomplete.
+5. OOB discipline: Collaborator payloads only against approved targets; poll before concluding; never declare OOB negative without at least one poll round.
+
 ## Burp MCP workflow (proxy history -> Repeater -> Intruder -> Collaborator)
 
 Prefer the Burp MCP server (`burp_*` tools) when configured. Requires the PortSwigger MCP extension enabled in Burp (MCP tab, default `http://127.0.0.1:9876` SSE).
@@ -59,3 +69,4 @@ If `burp_*` tools are absent, fall back to CLI discovery/fuzzing below and note 
 - `opencrow-web-mcp`: stdio MCP server for typed discovery, fuzzing, and sqlmap workflows.
 - `scripts/verify_toolkit.py`: confirm that the mapped web discovery tools are installed.
 - `references/tooling.md`: quick selection notes for web workflows.
+- `references/purple-guardrails.md`: mandatory scope/severity/remediation checklist for purple operation.
