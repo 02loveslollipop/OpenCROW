@@ -2,6 +2,7 @@
 """Durable local workers, detached turn supervision, and worker-side inbox helper."""
 from __future__ import annotations
 
+import secrets
 import argparse
 from contextlib import contextmanager
 import json
@@ -302,7 +303,7 @@ class Runner:
         with self.transaction() as db:
             worker = self.load(db, worker_id)
             self.reconcile(db, worker)
-            if worker["active"] or (worker["token"], worker["state"]) != expected_turn:
+            if worker["active"] or not (secrets.compare_digest(worker["token"], expected_turn[0]) and worker["state"] == expected_turn[1]):
                 raise WorkerError("Worker changed during provider preflight; retry the request")
             if handoff:
                 checkpoint = prompt or worker.get("checkpoint")
@@ -350,7 +351,7 @@ class Runner:
                     raise WorkerError("Worker is not waiting for instructions; use a checkpoint handoff after interruption")
                 if not worker["active"] and not worker.get("native_session_id"):
                     raise WorkerError("Cannot resume without a native session ID; use checkpoint handoff")
-                if availability is not None and worker["token"] != expected_token:
+                if availability is not None and not secrets.compare_digest(worker["token"], expected_token):
                     raise WorkerError("Worker changed during provider preflight; retry the request")
                 if worker["active"] or availability is not None:
                     if availability is not None:
@@ -394,7 +395,7 @@ class Runner:
             raise WorkerError("Unsupported report kind")
         with self.transaction() as db:
             worker = self.load(db, worker_id)
-            if not worker["active"] or worker["token"] != token or worker["cancel_requested"]:
+            if not worker["active"] or not secrets.compare_digest(worker["token"], token) or worker["cancel_requested"]:
                 raise WorkerError("Report belongs to an inactive or superseded turn")
             data = {"message": message}
             if kind == "question":
@@ -445,7 +446,7 @@ class Runner:
         while True:
             with self.transaction() as db:
                 worker = self.load(db, worker_id)
-                if worker["token"] != token or not worker["active"]:
+                if not secrets.compare_digest(worker["token"], token) or not worker["active"]:
                     return
             try:
                 self.run_turn(worker)
@@ -453,7 +454,7 @@ class Runner:
                 with self.transaction() as db:
                     current = self.load(db, worker_id)
                     terminate(current.get("process"))
-                    if current["token"] == token:
+                    if secrets.compare_digest(current["token"], token):
                         current.update(active=False, state="failed", error=f"Supervisor error: {exc}")
                         self.event(db, current, "failed", {"error": current["error"]})
                         self.save(db, current)
@@ -461,7 +462,7 @@ class Runner:
             with self.transaction() as db:
                 current = self.load(db, worker_id)
                 # A reply arriving before the native turn ended is continued by this supervisor.
-                if current["token"] != token or current["state"] != "waiting_for_instructions":
+                if not secrets.compare_digest(current["token"], token) or current["state"] != "waiting_for_instructions":
                     return
                 if not current.get("native_session_id") or not self.consume_reply(db, current):
                     return
@@ -490,7 +491,7 @@ class Runner:
         deadline = time.monotonic() + worker["timeout_sec"]
         with self.transaction() as db:
             current = self.load(db, worker_id)
-            if current["token"] != token or not current["active"]:
+            if not secrets.compare_digest(current["token"], token) or not current["active"]:
                 return
             if current["cancel_requested"]:
                 current.update(active=False, state="cancelled")
@@ -579,7 +580,7 @@ class Runner:
         (directory / "review.json").write_text(json.dumps(self.review(snapshot), indent=2) + "\n")
         with self.transaction() as db:
             current = self.load(db, worker_id)
-            if current["token"] != token:
+            if not secrets.compare_digest(current["token"], token):
                 return
             if cancelled or current["cancel_requested"]:
                 state = "cancelled"
