@@ -126,6 +126,9 @@ class RuntimeSocket:
             payload = json.loads(message)
         except json.JSONDecodeError:
             return
+        # SECURITY: Validate payload is a dictionary to prevent AttributeError
+        if not isinstance(payload, dict):
+            return
         if payload.get("event_type") != "command":
             return
         command = payload.get("command")
@@ -168,9 +171,11 @@ class RuntimeSocket:
                 raise RuntimeError(f"Unsupported runtime command: {command_type}")
             self._send({"action": "command_status", "command_id": command_id, "status": "completed"})
         except Exception as exc:
+            # SECURITY: Do not expose raw exception details to websocket clients
+            logging.error('Error handling command in ConstellationRuntime', exc_info=True)
             if agent_id:
-                self._send({"action": "agent_state", "agent_id": agent_id, "status": "failed", "metadata": {"error": str(exc)}})
-            self._send({"action": "command_status", "command_id": command_id, "status": "failed", "error": str(exc)})
+                self._send({"action": "agent_state", "agent_id": agent_id, "status": "failed", "metadata": {"error": "Internal server error"}})
+            self._send({"action": "command_status", "command_id": command_id, "status": "failed", "error": "Internal server error"})
 
     def _spawn_agent(self, command: dict[str, Any]) -> None:
         payload = command.get("payload") if isinstance(command.get("payload"), dict) else {}

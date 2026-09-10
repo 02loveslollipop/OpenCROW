@@ -709,7 +709,9 @@ class FileDownloadHandler(BaseHandler):
         try:
             data, metadata = self.app_state.storage.download_file(file_id)
         except Exception as exc:
-            raise tornado.web.HTTPError(404, reason=f"Unknown file: {file_id}") from exc
+            # SECURITY: Do not expose raw exception details or user input in error messages
+            logging.error('Error downloading file', exc_info=True)
+            raise tornado.web.HTTPError(404, reason="Unknown file") from exc
         content_type = str(metadata.get("content_type", "application/octet-stream"))
         filename = _safe_download_filename(str(metadata.get("filename", file_id)))
         self.set_header("Content-Type", content_type)
@@ -725,7 +727,9 @@ class ChallengeFileDownloadHandler(BaseHandler):
         try:
             data, metadata = self.app_state.storage.download_challenge_file(file_id)
         except Exception as exc:
-            raise tornado.web.HTTPError(404, reason=f"Unknown challenge file: {file_id}") from exc
+            # SECURITY: Do not expose raw exception details or user input in error messages
+            logging.error('Error downloading challenge file', exc_info=True)
+            raise tornado.web.HTTPError(404, reason="Unknown challenge file") from exc
         content_type = str(metadata.get("content_type", "application/octet-stream"))
         filename = _safe_download_filename(str(metadata.get("filename", file_id)))
         self.set_header("Content-Type", content_type)
@@ -741,7 +745,9 @@ class AgentArtifactDownloadHandler(BaseHandler):
         try:
             data, metadata = self.app_state.storage.download_agent_artifact(file_id)
         except Exception as exc:
-            raise tornado.web.HTTPError(404, reason=f"Unknown agent artifact: {file_id}") from exc
+            # SECURITY: Do not expose raw exception details or user input in error messages
+            logging.error('Error downloading agent artifact', exc_info=True)
+            raise tornado.web.HTTPError(404, reason="Unknown agent artifact") from exc
         content_type = str(metadata.get("content_type", "application/octet-stream"))
         filename = _safe_download_filename(str(metadata.get("filename", file_id)))
         self.set_header("Content-Type", content_type)
