@@ -10,3 +10,4 @@ dist-pages/
 .agents/
 .jules/
 NEXT_STEP.md
+.venv/
