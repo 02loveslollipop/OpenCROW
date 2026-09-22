@@ -358,7 +358,12 @@ class ConstellationStorage:
         ]
 
     def download_challenge_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+        import bson.errors
+        import gridfs.errors
+        try:
+            grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
@@ -692,7 +697,12 @@ class ConstellationStorage:
         ]
 
     def download_agent_artifact(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
+        import bson.errors
+        import gridfs.errors
+        try:
+            grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
@@ -1430,7 +1440,12 @@ class ConstellationStorage:
         return self._public_final_artifact(doc)
 
     def download_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+        import bson.errors
+        import gridfs.errors
+        try:
+            grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
