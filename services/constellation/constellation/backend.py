@@ -880,9 +880,6 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         self.io_loop: tornado.ioloop.IOLoop | None = None
 
     def check_origin(self, origin: str) -> bool:
-        header = self.request.headers.get("Authorization", "").strip()
-        if header.lower().startswith("bearer "):
-            return True
         if not origin:
             return True
         allowed = self.app_state.settings.allowed_ws_origins
