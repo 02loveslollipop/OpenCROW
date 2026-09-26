@@ -708,6 +708,8 @@ class FileDownloadHandler(BaseHandler):
     def get(self, file_id: str) -> None:
         try:
             data, metadata = self.app_state.storage.download_file(file_id)
+        except KeyError as exc:
+            raise tornado.web.HTTPError(404, reason="Unknown file") from exc
         except Exception as exc:
             # SECURITY: Do not expose raw exception details or user input in error messages
             logging.error('Error downloading file', exc_info=True)
@@ -726,6 +728,8 @@ class ChallengeFileDownloadHandler(BaseHandler):
     def get(self, file_id: str) -> None:
         try:
             data, metadata = self.app_state.storage.download_challenge_file(file_id)
+        except KeyError as exc:
+            raise tornado.web.HTTPError(404, reason="Unknown challenge file") from exc
         except Exception as exc:
             # SECURITY: Do not expose raw exception details or user input in error messages
             logging.error('Error downloading challenge file', exc_info=True)
@@ -744,6 +748,8 @@ class AgentArtifactDownloadHandler(BaseHandler):
     def get(self, file_id: str) -> None:
         try:
             data, metadata = self.app_state.storage.download_agent_artifact(file_id)
+        except KeyError as exc:
+            raise tornado.web.HTTPError(404, reason="Unknown agent artifact") from exc
         except Exception as exc:
             # SECURITY: Do not expose raw exception details or user input in error messages
             logging.error('Error downloading agent artifact', exc_info=True)
