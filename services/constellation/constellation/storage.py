@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from bson import ObjectId
+import bson.errors
+import gridfs.errors
 from gridfs import GridFSBucket
 from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
@@ -358,12 +360,15 @@ class ConstellationStorage:
         ]
 
     def download_challenge_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
-        data = grid_out.read()
-        metadata = dict(grid_out.metadata or {})
-        metadata["filename"] = grid_out.filename
-        metadata["length"] = grid_out.length
-        return data, metadata
+        try:
+            grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+            data = grid_out.read()
+            metadata = dict(grid_out.metadata or {})
+            metadata["filename"] = grid_out.filename
+            metadata["length"] = grid_out.length
+            return data, metadata
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
 
     def create_agent(
         self,
@@ -692,12 +697,15 @@ class ConstellationStorage:
         ]
 
     def download_agent_artifact(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
-        data = grid_out.read()
-        metadata = dict(grid_out.metadata or {})
-        metadata["filename"] = grid_out.filename
-        metadata["length"] = grid_out.length
-        return data, metadata
+        try:
+            grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
+            data = grid_out.read()
+            metadata = dict(grid_out.metadata or {})
+            metadata["filename"] = grid_out.filename
+            metadata["length"] = grid_out.length
+            return data, metadata
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
 
     def _public_topic(
         self,
@@ -1430,12 +1438,15 @@ class ConstellationStorage:
         return self._public_final_artifact(doc)
 
     def download_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.bucket.open_download_stream(ObjectId(file_id))
-        data = grid_out.read()
-        metadata = dict(grid_out.metadata or {})
-        metadata["filename"] = grid_out.filename
-        metadata["length"] = grid_out.length
-        return data, metadata
+        try:
+            grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+            data = grid_out.read()
+            metadata = dict(grid_out.metadata or {})
+            metadata["filename"] = grid_out.filename
+            metadata["length"] = grid_out.length
+            return data, metadata
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
 
     def list_broker_events(self, topic: str, *, after_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         bounded_limit = max(1, min(limit, 500))
