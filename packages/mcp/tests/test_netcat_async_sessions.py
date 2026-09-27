@@ -150,6 +150,10 @@ def test_listener_port_zero_text_raw_capture_restart_and_timeout(tmp_path: Path)
             "0.25",
         )
         timed_out = wait_for_state(base_dir, name, "accept_timeout")
+        deadline_timeout = time.monotonic() + 3
+        while time.monotonic() < deadline_timeout and timed_out.get("running") is not False:
+            time.sleep(0.05)
+            timed_out = session_status(base_dir, name)
         assert timed_out["running"] is False
         assert raw_path.read_bytes() == b""
     finally:
