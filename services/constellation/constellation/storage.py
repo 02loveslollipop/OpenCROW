@@ -16,6 +16,9 @@ from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
 from pymongo import ReturnDocument
+from bson.errors import InvalidId
+from gridfs.errors import NoFile
+
 
 from .config import BackendSettings
 from .prompts import load_lifecycle_prompt_template
@@ -115,7 +118,7 @@ class ConstellationStorage:
         if not token:
             return False
         for system_token in self.settings.system_tokens:
-            if secrets.compare_digest(token, system_token):
+            if token is not None and system_token is not None and secrets.compare_digest(token, system_token):
                 return True
         return False
 
@@ -358,12 +361,16 @@ class ConstellationStorage:
         ]
 
     def download_challenge_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+        try:
+            grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+        except (InvalidId, NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
         metadata["length"] = grid_out.length
         return data, metadata
+
 
     def create_agent(
         self,
@@ -1139,7 +1146,7 @@ class ConstellationStorage:
             )
 
         expected = current.get("resume_secret_digest")
-        if not isinstance(expected, str) or not secrets.compare_digest(expected, digest_secret(secret)):
+        if not isinstance(expected, str) or secret is None or not secrets.compare_digest(expected, digest_secret(secret)):
             raise PermissionError("Invalid resume secret for this topic identity.")
 
         updated = self.members.find_one_and_update(
@@ -1430,12 +1437,16 @@ class ConstellationStorage:
         return self._public_final_artifact(doc)
 
     def download_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+        try:
+            grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+        except (InvalidId, NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
         metadata["length"] = grid_out.length
         return data, metadata
+
 
     def list_broker_events(self, topic: str, *, after_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         bounded_limit = max(1, min(limit, 500))
