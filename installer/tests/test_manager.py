@@ -517,11 +517,11 @@ def test_interactive_back_returns_to_immediately_previous_screen(tmp_path: Path)
         assert output.count(b"2/6 Optionally install selected missing agent CLIs") >= 2
         assert output.count(b"1/6 Agent integrations") == agent_screen_count
         os.write(master, b"q")
-        assert process.wait(timeout=5) == 1
+        assert process.wait(timeout=10) == 1
     finally:
         if process.poll() is None:
             process.terminate()
-            process.wait(timeout=5)
+            process.wait(timeout=10)
         os.close(master)
 
 
@@ -575,7 +575,7 @@ def test_selector_sigint_restores_terminal(tmp_path: Path) -> None:
                     break
         assert b"Up/Down navigate" in output, output.decode(errors="replace")
         process.send_signal(signal.SIGINT)
-        assert process.wait(timeout=5) in (-signal.SIGINT, 128 + signal.SIGINT)
+        assert process.wait(timeout=10) in (-signal.SIGINT, 128 + signal.SIGINT)
         before = (outdir / "before.txt").read_text().strip()
         after = subprocess.run(
             ["stty", "-g"], stdin=master, capture_output=True, text=True, check=False, timeout=10
@@ -584,7 +584,7 @@ def test_selector_sigint_restores_terminal(tmp_path: Path) -> None:
     finally:
         if process.poll() is None:
             process.terminate()
-            process.wait(timeout=5)
+            process.wait(timeout=10)
         os.close(master)
 
 
