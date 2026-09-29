@@ -115,7 +115,7 @@ class ConstellationStorage:
         if not token:
             return False
         for system_token in self.settings.system_tokens:
-            if secrets.compare_digest(token, system_token):
+            if token is not None and system_token is not None and secrets.compare_digest(token, system_token):
                 return True
         return False
 
