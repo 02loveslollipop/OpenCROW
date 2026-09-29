@@ -23,6 +23,7 @@ _selector_sig() {
   _selector_restore
   trap - INT TERM
   kill -s "$1" "$$"
+  # The bash script terminates
 }
 
 _selector_arm_traps() {

@@ -574,8 +574,11 @@ def test_selector_sigint_restores_terminal(tmp_path: Path) -> None:
                 except OSError:
                     break
         assert b"Up/Down navigate" in output, output.decode(errors="replace")
-        process.send_signal(signal.SIGINT)
-        assert process.wait(timeout=5) in (-signal.SIGINT, 128 + signal.SIGINT)
+        try:
+            os.write(master, b"\x03")
+        except OSError:
+            pass
+        assert process.wait(timeout=5) in (130, -signal.SIGINT, 128 + signal.SIGINT)
         before = (outdir / "before.txt").read_text().strip()
         after = subprocess.run(
             ["stty", "-g"], stdin=master, capture_output=True, text=True, check=False, timeout=10
