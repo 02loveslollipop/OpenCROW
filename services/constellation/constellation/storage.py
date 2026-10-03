@@ -16,6 +16,8 @@ from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
 from pymongo import ReturnDocument
+import bson.errors
+import gridfs.errors
 
 from .config import BackendSettings
 from .prompts import load_lifecycle_prompt_template
@@ -115,7 +117,7 @@ class ConstellationStorage:
         if not token:
             return False
         for system_token in self.settings.system_tokens:
-            if secrets.compare_digest(token, system_token):
+            if token is not None and system_token is not None and secrets.compare_digest(token, system_token):
                 return True
         return False
 
@@ -272,7 +274,7 @@ class ConstellationStorage:
         query: dict[str, Any] = {"slug": challenge_id_or_slug}
         try:
             query = {"_id": ObjectId(challenge_id_or_slug)}
-        except Exception:
+        except bson.errors.InvalidId:
             pass
         doc = self.challenges.find_one(query)
         return self._public_challenge(doc) if doc else None
@@ -358,7 +360,10 @@ class ConstellationStorage:
         ]
 
     def download_challenge_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+        try:
+            grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
@@ -423,7 +428,7 @@ class ConstellationStorage:
     def get_agent(self, agent_id: str) -> dict[str, Any] | None:
         try:
             doc = self.agents.find_one({"_id": ObjectId(agent_id)})
-        except Exception:
+        except bson.errors.InvalidId:
             return None
         return self._public_agent(doc) if doc else None
 
@@ -692,7 +697,10 @@ class ConstellationStorage:
         ]
 
     def download_agent_artifact(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
+        try:
+            grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
@@ -1139,7 +1147,8 @@ class ConstellationStorage:
             )
 
         expected = current.get("resume_secret_digest")
-        if not isinstance(expected, str) or not secrets.compare_digest(expected, digest_secret(secret)):
+        digest = digest_secret(secret)
+        if not isinstance(expected, str) or expected is None or digest is None or not secrets.compare_digest(expected, digest):
             raise PermissionError("Invalid resume secret for this topic identity.")
 
         updated = self.members.find_one_and_update(
@@ -1161,7 +1170,7 @@ class ConstellationStorage:
     def get_member(self, member_id: str) -> dict[str, Any] | None:
         try:
             object_id = ObjectId(member_id)
-        except Exception:
+        except bson.errors.InvalidId:
             return None
         doc = self.members.find_one({"_id": object_id})
         return self._public_member(doc) if doc else None
@@ -1169,7 +1178,7 @@ class ConstellationStorage:
     def _member_doc(self, member_id: str) -> dict[str, Any]:
         try:
             object_id = ObjectId(member_id)
-        except Exception as exc:
+        except bson.errors.InvalidId as exc:
             raise KeyError(member_id) from exc
         doc = self.members.find_one({"_id": object_id})
         if doc is None:
@@ -1183,7 +1192,7 @@ class ConstellationStorage:
         now = utc_now()
         try:
             object_id = ObjectId(member_id)
-        except Exception as exc:
+        except bson.errors.InvalidId as exc:
             raise KeyError(member_id) from exc
         doc = self.members.find_one_and_update(
             {"_id": object_id},
@@ -1430,7 +1439,10 @@ class ConstellationStorage:
         return self._public_final_artifact(doc)
 
     def download_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+        try:
+            grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+        except (bson.errors.InvalidId, gridfs.errors.NoFile) as exc:
+            raise KeyError(file_id) from exc
         data = grid_out.read()
         metadata = dict(grid_out.metadata or {})
         metadata["filename"] = grid_out.filename
@@ -1443,7 +1455,7 @@ class ConstellationStorage:
         if after_id:
             try:
                 query["_id"] = {"$gt": ObjectId(after_id)}
-            except Exception as exc:
+            except bson.errors.InvalidId as exc:
                 raise ValueError(f"Invalid event id: {after_id}") from exc
         cursor = self.broker_events.find(query).sort("_id", ASCENDING).limit(bounded_limit)
         return [self._public_broker_event(doc) for doc in cursor]
