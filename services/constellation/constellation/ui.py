@@ -71,7 +71,7 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
         if request.method == "POST":
             session_token = session.get("csrf_token")
             supplied = request.form.get("csrf_token", "")
-            if not session_token or not supplied or not secrets_module.compare_digest(str(session_token), supplied):
+            if not session_token or not supplied or not (session_token is not None and supplied is not None and secrets_module.compare_digest(str(session_token), supplied)):
                 return Response("CSRF token missing or invalid.", status=403)
         return None
 
