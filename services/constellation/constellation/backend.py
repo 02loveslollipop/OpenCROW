@@ -764,6 +764,11 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
         self.runtime_id = ""
 
     def check_origin(self, origin: str) -> bool:
+        header = self.request.headers.get("Authorization", "").strip()
+        if header.lower().startswith("bearer "):
+            # SECURITY: non-browser programmatic clients (like local worker agents)
+            # use custom headers and need origin check bypassed
+            return True
         if not origin:
             return True
         allowed = self.app_state.settings.allowed_ws_origins
@@ -882,6 +887,8 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
     def check_origin(self, origin: str) -> bool:
         header = self.request.headers.get("Authorization", "").strip()
         if header.lower().startswith("bearer "):
+            # SECURITY: non-browser programmatic clients (like local worker agents)
+            # use custom headers and need origin check bypassed
             return True
         if not origin:
             return True
