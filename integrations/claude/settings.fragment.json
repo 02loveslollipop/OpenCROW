@@ -1,11 +1,4 @@
 {
-  "mcpServers": {
-    "opencrow-lifecycle": {
-      "type": "stdio",
-      "command": "opencrow-lifecycle-mcp",
-      "args": []
-    }
-  },
   "hooks": {
     "SessionStart": [
       {

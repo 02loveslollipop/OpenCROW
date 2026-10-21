@@ -44,6 +44,12 @@ JSON_CONFIGS = {
 }
 MANAGED_TOML_START = "# >>> OpenCROW managed integration >>>"
 MANAGED_TOML_END = "# <<< OpenCROW managed integration <<<"
+LIFECYCLE_SERVER = "opencrow-lifecycle"
+# Claude Code ignores `mcpServers` in ~/.claude/settings.json; user-scope MCP
+# servers live in ~/.claude.json, a file Claude Code itself rewrites at runtime.
+CLAUDE_USER_CONFIG = ".claude.json"
+CLAUDE_MCP_FRAGMENT = "integrations/claude/mcp.fragment.json"
+CLAUDE_CLI_TIMEOUT = 60
 
 
 class InstallError(RuntimeError):
@@ -591,6 +597,11 @@ class StateEngine:
             if not isinstance(loaded, dict):
                 raise InstallError(f"Provider config is not a JSON object: {destination}")
             existing = remove_opencrow_hooks(loaded)
+            if provider == "claude":
+                # Pre-fix installs wrote the server here, where Claude Code never reads it.
+                _drop_server(existing, "mcpServers")
+                if existing.get("mcpServers") == {}:
+                    del existing["mcpServers"]
         fragment = json.loads(fragment_path.read_text(encoding="utf-8"))
         if provider == "opencode":
             version = command_version("opencode") or ""
@@ -664,6 +675,94 @@ class StateEngine:
         atomic_text(destination, json.dumps(deep_merge(existing, fragment), indent=2, sort_keys=True) + "\n")
         return [str(destination)]
 
+    def _claude_user_config(self) -> Path:
+        return self.paths.home / CLAUDE_USER_CONFIG
+
+    def _read_claude_user_config(self) -> dict[str, Any] | None:
+        """Parsed ~/.claude.json, {} when absent. Raises InstallError when unparseable.
+
+        Validated before every CLI call: `claude mcp` replaces an unparseable
+        file with a fresh one, which would silently drop the user's state.
+        """
+        config = self._claude_user_config()
+        if not config.exists():
+            return {}
+        try:
+            value = json.loads(config.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise InstallError(f"Refusing to modify unparseable Claude Code config {config}: {exc}") from exc
+        if not isinstance(value, dict):
+            raise InstallError(f"Claude Code config is not a JSON object: {config}")
+        return value
+
+    def _claude_cli(self, *arguments: str) -> subprocess.CompletedProcess[str] | None:
+        """Run `claude mcp ...` against the managed home, or None when the CLI is absent."""
+        executable = shutil.which("claude")
+        if executable is None:
+            return None
+        environment = {**os.environ, "HOME": str(self.paths.home)}
+        environment.pop("CLAUDE_CONFIG_DIR", None)
+        try:
+            return subprocess.run(
+                [executable, "mcp", *arguments],
+                capture_output=True,
+                text=True,
+                timeout=CLAUDE_CLI_TIMEOUT,
+                check=False,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise InstallError(f"Claude Code CLI failed: {type(exc).__name__}: {exc}") from exc
+
+    def claude_mcp_registered(self) -> bool:
+        try:
+            config = self._read_claude_user_config()
+        except InstallError:
+            return False
+        servers = config.get("mcpServers") if config else None
+        return isinstance(servers, dict) and isinstance(servers.get(LIFECYCLE_SERVER), dict)
+
+    def _register_claude_mcp(self, backups: list[dict[str, Any]]) -> list[str]:
+        server = json.loads((self.paths.current / CLAUDE_MCP_FRAGMENT).read_text(encoding="utf-8"))["mcpServers"][
+            LIFECYCLE_SERVER
+        ]
+        config = self._claude_user_config()
+        existing = self._read_claude_user_config()
+        self._backup(config, backups)
+        # `add-json` refuses an existing name, so a stale definition is removed first.
+        removed = self._claude_cli("remove", "--scope", "user", LIFECYCLE_SERVER)
+        if removed is None:
+            servers = existing.get("mcpServers")
+            if not isinstance(servers, dict):
+                servers = existing["mcpServers"] = {}
+            servers[LIFECYCLE_SERVER] = server
+            atomic_text(config, json.dumps(existing, indent=2) + "\n", mode=0o600)
+        else:
+            added = self._claude_cli("add-json", "--scope", "user", LIFECYCLE_SERVER, json.dumps(server))
+            if added is None or added.returncode != 0:
+                detail = (added.stderr or added.stdout).strip() if added else "CLI disappeared"
+                raise InstallError(f"Claude Code rejected the lifecycle MCP registration: {detail[:300]}")
+        if not self.claude_mcp_registered():
+            raise InstallError(f"Lifecycle MCP server is not registered in {config}")
+        return [str(config)]
+
+    def _unregister_claude_mcp(self, backups: list[dict[str, Any]]) -> None:
+        config = self._claude_user_config()
+        try:
+            existing = self._read_claude_user_config()
+        except InstallError:
+            return  # never rewrite a file we cannot parse, not even to clean up
+        servers = existing.get("mcpServers")
+        if not (isinstance(servers, dict) and LIFECYCLE_SERVER in servers):
+            return
+        self._backup(config, backups)
+        result = self._claude_cli("remove", "--scope", "user", LIFECYCLE_SERVER)
+        if result is None or result.returncode != 0 or self.claude_mcp_registered():
+            existing = self._read_claude_user_config()
+            _drop_server(existing, "mcpServers")
+            atomic_text(config, json.dumps(existing, indent=2) + "\n", mode=0o600)
+
     def _install_integrations(
         self,
         agents: list[str],
@@ -679,6 +778,8 @@ class StateEngine:
                 managed.extend(self._merge_json_config(provider, backups))
                 if provider == "antigravity":
                     managed.extend(self._merge_antigravity_mcp(backups))
+                if provider == "claude":
+                    managed.extend(self._register_claude_mcp(backups))
         return managed, compatibility
 
     def _verify_installed_integrations(self, agents: list[str]) -> None:
@@ -704,6 +805,8 @@ class StateEngine:
                     continue
                 if "opencrow-lifecycle" not in content:
                     issues.append(f"{provider} lifecycle entry is missing from {target}")
+            if provider == "claude" and not self.claude_mcp_registered():
+                issues.append(f"claude lifecycle MCP server is not registered in {self._claude_user_config()}")
         for launcher in ("opencrow", "opencrow-lifecycle-mcp", "opencrow-lifecycle-hook", "rsx"):
             if not os.access(self.paths.bin / launcher, os.X_OK):
                 issues.append(f"managed launcher is not executable: {launcher}")
@@ -954,6 +1057,7 @@ class StateEngine:
             version = provider_compatibility["version"]
             skill_dir = self.paths.home / SKILLS_DIRS[provider]
             lifecycle_skills = list(skill_dir.glob("*/SKILL.md")) if skill_dir.exists() else []
+            mcp_registered = self.claude_mcp_registered() if provider == "claude" else None
             result.append(
                 {
                     "provider": provider,
@@ -964,10 +1068,12 @@ class StateEngine:
                     "compatibility": provider_compatibility["compatibility"],
                     "warning": provider_compatibility["warning"],
                     "skill_count": len(lifecycle_skills),
+                    "lifecycle_mcp_registered": mcp_registered,
                     "healthy": provider not in selected or (
                         version is not None
                         and provider_compatibility["compatibility"] != "incompatible"
                         and bool(lifecycle_skills)
+                        and mcp_registered is not False
                     ),
                 }
             )
@@ -1013,6 +1119,11 @@ class StateEngine:
             if item["selected"] and not item["healthy"]:
                 if item["compatibility"] == "incompatible":
                     issues.append(str(item["warning"]))
+                elif item.get("lifecycle_mcp_registered") is False:
+                    issues.append(
+                        f"Integration is unhealthy: {item['provider']} lifecycle MCP server is not registered "
+                        "in ~/.claude.json; run `opencrow integrations repair`."
+                    )
                 else:
                     issues.append(f"Integration is unhealthy: {item['provider']}")
             if item["selected"] and item["compatibility"] == "unknown" and item["warning"]:
@@ -1074,13 +1185,10 @@ class StateEngine:
                 value = json.loads(config.read_text(encoding="utf-8"))
                 cleaned = remove_opencrow_hooks(value)
                 for parent_key in ("mcp", "mcpServers"):
-                    parent = cleaned.get(parent_key)
-                    if isinstance(parent, dict):
-                        parent.pop("opencrow-lifecycle", None)
-                        servers = parent.get("servers")
-                        if isinstance(servers, dict):
-                            servers.pop("opencrow-lifecycle", None)
+                    _drop_server(cleaned, parent_key)
                 atomic_text(config, json.dumps(cleaned, indent=2, sort_keys=True) + "\n")
+        if provider == "claude":
+            self._unregister_claude_mcp(backups)
         if provider == "opencode":
             plugin = self.paths.home / ".config/opencode/plugins/opencrow-lifecycle.js"
             if plugin.exists():
@@ -1249,6 +1357,17 @@ class StateEngine:
             retained.extend(cli_unresolved)
         unresolved = [*system_unresolved, *cli_unresolved]
         return {"ok": not unresolved, "removed": removed, "retained": retained, "unresolved": unresolved}
+
+
+def _drop_server(config: dict[str, Any], parent_key: str) -> None:
+    """Remove only OpenCROW's lifecycle server from `config[parent_key]`, in place."""
+    parent = config.get(parent_key)
+    if not isinstance(parent, dict):
+        return
+    parent.pop(LIFECYCLE_SERVER, None)
+    servers = parent.get("servers")
+    if isinstance(servers, dict):
+        servers.pop(LIFECYCLE_SERVER, None)
 
 
 def shlex_quote(value: str) -> str:
