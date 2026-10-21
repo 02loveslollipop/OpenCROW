@@ -179,11 +179,27 @@ def test_doctor_reports_missing_server(tmp_path: Path) -> None:
     assert engine.doctor()["ok"] is True
 
 
-def test_unselected_claude_does_not_affect_doctor(tmp_path: Path) -> None:
+@pytest.mark.parametrize("codex_version", ["codex 99.0.0", None])
+def test_unselected_claude_does_not_affect_doctor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_version: str | None
+) -> None:
+    """Only claude's contribution to doctor is asserted. The overall verdict
+    depends on whether the codex CLI exists on the host: CI runners have none,
+    so `ok` is False there for reasons unrelated to claude. Both host states are
+    simulated so the result never depends on the developer's PATH."""
+    real_version = __import__("opencrow_manager").command_version
+    monkeypatch.setattr(
+        "opencrow_manager.command_version",
+        lambda command: codex_version if command == "codex" else real_version(command),
+    )
     paths = paths_for(tmp_path)
     engine = StateEngine(paths)
     engine.install(source=REPOSITORY, mode="full", agents=["codex"])
-    assert engine.doctor()["ok"] is True
+
+    report = engine.doctor()
+    claude = next(i for i in report["integrations"] if i["provider"] == "claude")
+    assert claude["selected"] is False and claude["healthy"] is True
+    assert not [issue for issue in report["issues"] if "claude" in issue]
     assert not (paths.home / ".claude.json").exists()
 
 
