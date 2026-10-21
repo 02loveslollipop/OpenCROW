@@ -151,6 +151,32 @@ def test_unparseable_user_config_fails_closed_and_is_not_touched(
     assert not [c for c in cli_calls(fake_claude_cli) if c["args"][:1] == ["mcp"]]
 
 
+def test_cli_success_without_persisting_falls_back_to_direct_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression for the CI e2e: a `claude` shim that exits 0 for every command
+    made the installer abort because nothing was written. The installer must
+    trust the file over the exit code and land the entry where Claude Code reads
+    it, keeping existing keys and mode 0600; uninstall must also clean it up."""
+    monkeypatch.setenv("FAKE_CLAUDE_NOOP", "1")
+    paths = paths_for(tmp_path)
+    config = paths.home / ".claude.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(json.dumps({"numStartups": 2}))
+    config.chmod(0o600)
+    engine = StateEngine(paths)
+
+    engine.install(source=REPOSITORY, mode="full", agents=["claude"])
+
+    assert user_config(paths) == {"numStartups": 2, "mcpServers": {"opencrow-lifecycle": SERVER}}
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert engine.doctor()["ok"] is True
+
+    engine.uninstall(purge_env=False, purge_system=False, purge_agent_clis=False)
+    assert "opencrow-lifecycle" not in user_config(paths).get("mcpServers", {})
+    assert user_config(paths)["numStartups"] == 2
+
+
 def test_cli_rejection_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FAKE_CLAUDE_FAIL_ADD", "1")
     paths = paths_for(tmp_path)

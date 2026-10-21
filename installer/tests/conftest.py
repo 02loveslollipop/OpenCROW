@@ -14,6 +14,8 @@ import pytest
 #   * `remove` of a missing name exits 1;
 #   * an unparseable .claude.json makes the CLI exit 1 AFTER replacing the file with a
 #     fresh config, destroying its content.
+# FAKE_CLAUDE_NOOP=1 instead models a `claude` that exits 0 for anything without
+# writing (the shims used by scripts/test_installation_e2e.sh, or a wrapper).
 FAKE_CLAUDE = r'''#!@PYTHON@
 import json, os, sys
 from pathlib import Path
@@ -24,6 +26,10 @@ with open(os.environ["FAKE_CLAUDE_LOG"], "a", encoding="utf-8") as log:
                           "claude_config_dir": os.environ.get("CLAUDE_CONFIG_DIR")}) + "\n")
 if args == ["--version"]:
     print("2.1.307 (Claude Code)")
+    sys.exit(0)
+if os.environ.get("FAKE_CLAUDE_NOOP"):
+    # Same as the provider shims in scripts/test_*.sh: success, nothing persisted.
+    print("claude 99.0.0")
     sys.exit(0)
 config = Path(os.environ["HOME"]) / ".claude.json"
 try:

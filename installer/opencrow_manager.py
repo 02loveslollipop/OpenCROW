@@ -732,17 +732,21 @@ class StateEngine:
         self._backup(config, backups)
         # `add-json` refuses an existing name, so a stale definition is removed first.
         removed = self._claude_cli("remove", "--scope", "user", LIFECYCLE_SERVER)
-        if removed is None:
+        if removed is not None:
+            added = self._claude_cli("add-json", "--scope", "user", LIFECYCLE_SERVER, json.dumps(server))
+            if added is None or added.returncode != 0:
+                detail = (added.stderr or added.stdout).strip() if added else "CLI disappeared"
+                raise InstallError(f"Claude Code rejected the lifecycle MCP registration: {detail[:300]}")
+        if not self.claude_mcp_registered():
+            # No CLI, or a `claude` that reported success without persisting
+            # (a wrapper, a shim, a CLI bound to another config dir): write the
+            # entry where Claude Code reads it, re-validating the file first.
+            existing = self._read_claude_user_config()
             servers = existing.get("mcpServers")
             if not isinstance(servers, dict):
                 servers = existing["mcpServers"] = {}
             servers[LIFECYCLE_SERVER] = server
             atomic_text(config, json.dumps(existing, indent=2) + "\n", mode=0o600)
-        else:
-            added = self._claude_cli("add-json", "--scope", "user", LIFECYCLE_SERVER, json.dumps(server))
-            if added is None or added.returncode != 0:
-                detail = (added.stderr or added.stdout).strip() if added else "CLI disappeared"
-                raise InstallError(f"Claude Code rejected the lifecycle MCP registration: {detail[:300]}")
         if not self.claude_mcp_registered():
             raise InstallError(f"Lifecycle MCP server is not registered in {config}")
         return [str(config)]
