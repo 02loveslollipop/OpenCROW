@@ -150,7 +150,14 @@ def test_listener_port_zero_text_raw_capture_restart_and_timeout(tmp_path: Path)
             "0.25",
         )
         timed_out = wait_for_state(base_dir, name, "accept_timeout")
-        assert timed_out["running"] is False
+
+        # The background process state changes to 'accept_timeout' before it completely exits.
+        # Wait briefly for it to fully terminate and mark itself as not running.
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline and session_status(base_dir, name)["running"] is not False:
+            time.sleep(0.05)
+
+        assert session_status(base_dir, name)["running"] is False
         assert raw_path.read_bytes() == b""
     finally:
         if client is not None:
