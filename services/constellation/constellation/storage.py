@@ -115,7 +115,7 @@ class ConstellationStorage:
         if not token:
             return False
         for system_token in self.settings.system_tokens:
-            if secrets.compare_digest(token, system_token):
+            if isinstance(token, str) and isinstance(system_token, str) and secrets.compare_digest(token, system_token):
                 return True
         return False
 
@@ -1139,7 +1139,8 @@ class ConstellationStorage:
             )
 
         expected = current.get("resume_secret_digest")
-        if not isinstance(expected, str) or not secrets.compare_digest(expected, digest_secret(secret)):
+        digested = digest_secret(secret)
+        if not (isinstance(expected, str) and isinstance(digested, str) and secrets.compare_digest(expected, digested)):
             raise PermissionError("Invalid resume secret for this topic identity.")
 
         updated = self.members.find_one_and_update(
