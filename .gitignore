@@ -5,6 +5,7 @@ constellation/private/
 dist/
 dist-pages/
 .pytest_cache/
+node_modules/
 .cache/
 .vscode/
 .agents/

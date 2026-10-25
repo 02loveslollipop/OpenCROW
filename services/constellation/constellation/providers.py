@@ -9,10 +9,14 @@ import re
 import shutil
 import subprocess
 import threading
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "packages/opencode"))
+import opencrow_opencode as opencode_sdk
 
 
 PROVIDERS = ("codex", "opencode", "claude", "antigravity")
@@ -217,17 +221,24 @@ class OpenCodeAdapter(ProviderAdapter):
     provider = "opencode"
     command = "opencode"
 
-    def _base(self, workspace: Path, model: str | None) -> list[str]:
-        command = [self.command, "run", "--format", "json", "--auto", "--dir", str(workspace)]
-        if model or self.model:
-            command.extend(["--model", model or self.model or ""])
-        return command
+    def availability(self) -> Availability:
+        try:
+            health = opencode_sdk.ensure_host()
+        except (OSError, opencode_sdk.SDKError) as exc:
+            return Availability(self.provider, False, "OpenCode V2 SDK", None, "2.0.0", "unavailable", str(exc))
+        return Availability(self.provider, True, "OpenCode V2 SDK", health["version"], "2.0.0", "compatible")
+
+    def start(self, *, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:
+        return opencode_sdk.Turn(prompt=prompt, workspace=workspace, model=model or self.model, full_auto=True)
+
+    def resume(self, *, session_id: str, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:
+        return opencode_sdk.Turn(prompt=prompt, workspace=workspace, session_id=session_id, model=model or self.model, full_auto=True)
 
     def start_command(self, *, prompt: str, workspace: Path, model: str | None) -> list[str]:
-        return [*self._base(workspace, model), prompt]
+        return opencode_sdk.turn_command(workspace=workspace, model=model or self.model)
 
     def resume_command(self, *, session_id: str, prompt: str, workspace: Path, model: str | None) -> list[str]:
-        return [*self._base(workspace, model), "--session", session_id, prompt]
+        return opencode_sdk.turn_command(workspace=workspace, session_id=session_id, model=model or self.model)
 
 
 class ClaudeAdapter(ProviderAdapter):

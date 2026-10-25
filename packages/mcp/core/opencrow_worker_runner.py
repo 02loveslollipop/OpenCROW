@@ -19,6 +19,7 @@ import time
 import uuid
 
 from opencrow_worker_providers import WorkerError, command, nonempty, normalize, probe, settings
+from opencrow_worker_providers import opencode_sdk
 
 MAX_TEXT = 32768
 
@@ -153,9 +154,10 @@ class Runner:
         worker["last_event_cursor"] = cursor.lastrowid
 
     def reserve(self, db, worker, prompt):
+        worker.pop("native_form", None)
         worker.update(turn=worker.get("turn", 0) + 1, token=uuid.uuid4().hex, prompt=prompt,
                       state="starting", active=True, cancel_requested=False, supervisor=None, process=None,
-                      error=None, response="", progress=None, usage=None, reported_model=None, started_at=time.time(),
+                      error=None, response="", progress=None, usage=None, cost=None, reported_model=None, started_at=time.time(),
                       finished_at=None, exit_code=None)
         worker["turn_artifacts"] = str(self.root / worker["worker_id"] / f"turn-{worker['turn']}")
         self.event(db, worker, "turn_starting", {"provider": worker["provider"], "model": worker["model"],
@@ -332,6 +334,10 @@ class Runner:
     def reply(self, worker_id, question_id, message):
         message = text_input(message, "message")
         question_id = nonempty(question_id, "question_id")
+        with self.connect() as db:
+            snapshot = self.load(db, worker_id)
+        if snapshot.get("native_form") and snapshot.get("pending_question") == question_id:
+            return self.reply_native_form(worker_id, question_id, message)
         availability = None
         expected_token = None
         while True:
@@ -367,6 +373,43 @@ class Runner:
             # Re-read the question and turn after the probe: another caller
             # may have answered, cancelled, or handed off in the meantime.
             availability = probe(worker["provider"], worker["model"], worker["effort"])
+
+    def reply_native_form(self, worker_id, question_id, message):
+        with self.transaction() as db:
+            worker = self.load(db, worker_id)
+            self.reconcile(db, worker)
+            form = worker.get("native_form")
+            if not worker["active"] or not form or worker.get("pending_question") != question_id:
+                raise WorkerError("Native OpenCode form is no longer pending")
+            try:
+                answer = opencode_sdk.form_answer(form, message)
+            except opencode_sdk.SDKError as exc:
+                raise WorkerError(str(exc)) from exc
+            question = db.execute("SELECT * FROM questions WHERE id=? AND worker_id=?", (question_id, worker_id)).fetchone()
+            if not question or question["reply"] is not None:
+                raise WorkerError("Native question has already been answered")
+            db.execute("UPDATE questions SET reply=? WHERE id=?", (message, question_id))
+            worker.update(pending_question=None, state="running")
+            token = worker["token"]
+            self.save(db, worker)
+        try:
+            opencode_sdk.rpc("form.reply", {"session_id": worker["native_session_id"], "form_id": form["id"], "answer": answer})
+        except (OSError, opencode_sdk.SDKError) as exc:
+            with self.transaction() as db:
+                current = self.load(db, worker_id)
+                if current["token"] == token and current["active"]:
+                    db.execute("UPDATE questions SET reply=NULL WHERE id=?", (question_id,))
+                    current.update(pending_question=question_id, state="waiting_for_instructions")
+                    self.save(db, current)
+            raise WorkerError(f"Native form reply was not confirmed; inspect the session before retrying: {exc}") from exc
+        with self.transaction() as db:
+            current = self.load(db, worker_id)
+            db.execute("UPDATE questions SET consumed=1 WHERE id=?", (question_id,))
+            if current["token"] == token:
+                current.pop("native_form", None)
+                self.event(db, current, "reply", {"question_id": question_id, "message": message, "native": True})
+                self.save(db, current)
+            return self.public(current)
 
     def consume_reply(self, db, worker):
         question = db.execute("SELECT * FROM questions WHERE id=?", (worker["pending_question"],)).fetchone()
@@ -478,7 +521,7 @@ class Runner:
         prompt_file = directory / "prompt.txt"
         prompt_file.write_text(prompt)
         execution_prompt = prompt
-        if worker["provider"] != "codex" and len(prompt.encode("utf-8")) > 64000:
+        if worker["provider"] not in {"codex", "opencode"} and len(prompt.encode("utf-8")) > 64000:
             # Keep long handoffs and Unicode prompts below OS argv limits.
             # Codex already receives its full prompt over stdin.
             execution_prompt = f"Read the full task and worker reporting instructions from {str(prompt_file)!r}, then carry out that task."
@@ -499,7 +542,7 @@ class Runner:
                 self.save(db, current)
                 return
             process = subprocess.Popen(command(worker, execution_prompt), cwd=worker["workspace"], env=env,
-                                       stdin=subprocess.PIPE if worker["provider"] == "codex" else subprocess.DEVNULL,
+                                       stdin=subprocess.PIPE if worker["provider"] in {"codex", "opencode"} else subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
             identity = {"pid": process.pid, "start": process_identity(process.pid), "token": token}
             current.update(state="running", process=identity)
@@ -567,11 +610,21 @@ class Runner:
                     current["native_session_id"] = event.session
                 if event.model:
                     current["reported_model"] = event.model
+                if event.kind == "provider_question" and not current.get("pending_question"):
+                    form = event.data["form"]
+                    question_id = uuid.uuid4().hex
+                    question = form.get("title", "OpenCode input required") + "\n" + json.dumps(form.get("fields", []))
+                    db.execute("INSERT INTO questions(id,worker_id,turn,question) VALUES (?,?,?,?)", (question_id, worker_id, current["turn"], question))
+                    current.update(pending_question=question_id, native_form=form, state="waiting_for_instructions")
+                    current["checkpoint"] = current.get("checkpoint") or "Native OpenCode session paused for a form reply."
+                    current["checkpoint_turn"] = current["turn"]
                 if event.kind in {"response", "turn_result"}:
                     if isinstance(event.data.get("text"), str) and event.data["text"]:
                         current["response"] = (current["response"] + event.data["text"])[-MAX_TEXT:]
                     if event.data.get("usage") is not None:
                         current["usage"] = event.data["usage"]
+                    if event.data.get("cost") is not None:
+                        current["cost"] = event.data["cost"]
                 self.event(db, current, event.kind, event.data)
                 self.save(db, current)
         returncode = process.wait(timeout=5)

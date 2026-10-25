@@ -6,7 +6,7 @@
 {"task":"Implement the specified parser change and run its tests. Report files changed and test results.","provider":"codex","workspace":"/path/to/repo","workspace_mode":"auto"}
 ```
 
-Pass provider-native model IDs explicitly when a specific model is needed. OpenCode model names use `provider/model`; effort maps to OpenCode `--variant`, Codex `model_reasoning_effort`, or Antigravity `--effort`. Omitting model uses the CLI's configured default. An explicit null on a follow-up clears the override. Reported model information is separate from requested settings.
+Pass provider-native model IDs explicitly when a specific model is needed. OpenCode model names use `provider/model`; effort maps to the V2 SDK model variant, Codex `model_reasoning_effort`, or Antigravity `--effort`. Omitting model uses the provider's configured default. An explicit null on a follow-up clears the override. Reported model information is separate from requested settings. OpenCode uses the shared SDK host; native form questions are answered by `worker_reply` on the active turn (JSON objects for multiple fields).
 
 ```json
 {"worker_id":"returned-worker-id","after":0,"wait_sec":15}

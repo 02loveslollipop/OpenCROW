@@ -321,6 +321,10 @@ def main() -> int:
     from constellation.providers import adapter_for
 
     availability = adapter_for(args.provider).availability()
+    if args.provider == "opencode" and availability.available:
+        # This verification owns the isolated bridge, never the native service.
+        from constellation.providers import opencode_sdk
+        opencode_sdk.rpc("close")
     if not availability.available or availability.compatibility == "incompatible":
         raise AssertionError(f"Trusted runtime cannot advertise {args.provider}: {availability}")
 

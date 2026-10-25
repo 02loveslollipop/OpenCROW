@@ -101,7 +101,7 @@ def copy_tree(source: Path, target: Path) -> None:
         target,
         dirs_exist_ok=True,
         symlinks=True,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".pytest_cache"),
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".pytest_cache", "node_modules"),
     )
 
 
@@ -339,6 +339,7 @@ class StateEngine:
         try:
             copy_tree(source / "packages" / "lifecycle", stage / "packages" / "lifecycle")
             copy_tree(source / "skills", stage / "skills")
+            copy_tree(source / "packages" / "opencode", stage / "packages" / "opencode")
             copy_tree(source / "integrations", stage / "integrations")
             (stage / "installer").mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / "installer" / "opencrow_manager.py", stage / "installer" / "opencrow_manager.py")
@@ -593,24 +594,41 @@ class StateEngine:
             existing = remove_opencrow_hooks(loaded)
         fragment = json.loads(fragment_path.read_text(encoding="utf-8"))
         if provider == "opencode":
-            version = command_version("opencode") or ""
-            major_match = re.search(r"\b(\d+)\.", version)
-            if major_match and int(major_match.group(1)) >= 2:
-                server = fragment.get("mcp", {}).get("opencrow-lifecycle")
-                fragment["mcp"] = {"servers": {"opencrow-lifecycle": server}}
-                legacy = existing.get("mcp")
-                if isinstance(legacy, dict) and "opencrow-lifecycle" in legacy:
-                    # Drop the pre-v2 server entry so the two layouts do not coexist.
-                    del legacy["opencrow-lifecycle"]
+            legacy = existing.get("mcp")
+            if isinstance(legacy, dict):
+                servers = legacy.setdefault("servers", {})
+                for name in list(legacy):
+                    if name != "servers" and isinstance(legacy[name], dict) and "type" in legacy[name]:
+                        servers.setdefault(name, legacy.pop(name))
+                legacy.pop("opencrow-lifecycle", None)
+            old_plugins = existing.pop("plugin", [])
+            plugins = existing.get("plugins", [])
+            if not isinstance(old_plugins, list) or not isinstance(plugins, list):
+                raise InstallError("OpenCode plugins must be an array")
+            converted = [({"package": item[0], "options": item[1]} if isinstance(item, list) and len(item) == 2 else item) for item in old_plugins]
+            entries = plugins + converted
+            managed_plugin = str(self.paths.home / ".config/opencode/plugins/opencrow-lifecycle")
+            def owned(item):
+                value = item.get("package", "") if isinstance(item, dict) else item
+                return isinstance(value, str) and (value == managed_plugin or value.endswith("/opencrow-lifecycle.js") or value == "opencrow-lifecycle.js")
+            existing["plugins"] = [item for item in entries if not owned(item)] + [managed_plugin]
         merged = deep_merge(existing, fragment)
         atomic_text(destination, json.dumps(merged, indent=2, sort_keys=True) + "\n")
         managed = [str(destination)]
         if provider == "opencode":
-            plugin = self.paths.home / ".config/opencode/plugins/opencrow-lifecycle.js"
+            legacy_plugin = self.paths.home / ".config/opencode/plugins/opencrow-lifecycle.js"
+            if legacy_plugin.exists():
+                self._backup(legacy_plugin, backups)
+                legacy_plugin.unlink()
+            plugin = self.paths.home / ".config/opencode/plugins/opencrow-lifecycle"
+            if plugin.is_symlink():
+                self._backup_path(plugin, backups)
+                plugin.unlink()
+            elif plugin.exists():
+                self._backup_path(plugin, backups)
+                shutil.rmtree(plugin)
             plugin.parent.mkdir(parents=True, exist_ok=True)
-            if plugin.exists():
-                self._backup(plugin, backups)
-            shutil.copy2(self.paths.current / "integrations/opencode/opencrow-lifecycle.js", plugin)
+            plugin.symlink_to(self.paths.current / "packages/opencode/plugin", target_is_directory=True)
             managed.append(str(plugin))
         return managed
 
@@ -760,6 +778,12 @@ class StateEngine:
         except Exception:
             shutil.rmtree(stage, ignore_errors=True)
             raise
+        if mode == "full" or "opencode" in agents:
+            try:
+                package_methods["opencode_sdk"] = self._provision_opencode(stage)
+            except Exception:
+                shutil.rmtree(stage, ignore_errors=True)
+                raise
         self._commit_stage(stage)
         backups: list[dict[str, Any]] = []
         managed_paths = self._install_launchers(mode, toolboxes or [])
@@ -789,6 +813,47 @@ class StateEngine:
         }
         self._write_state(state, previous=previous_state or None)
         return state
+
+    def _provision_opencode(self, stage: Path) -> dict[str, Any]:
+        """Install locked SDK dependencies once, outside the rotating payload."""
+        import fcntl
+        sdk = stage / "packages/opencode"
+        lock_hash = sha256_file(sdk / "package-lock.json")
+        cache = self.paths.data / "opencode-sdk" / lock_hash[:16]
+        cache.mkdir(parents=True, exist_ok=True)
+        with (cache / "install.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            override = os.environ.get("OPENCROW_OPENCODE_NODE_MODULES")
+            modules = Path(override).expanduser().resolve() if override else cache / "node_modules"
+            expected = json.loads((sdk / "package.json").read_text())["dependencies"]
+            def ready():
+                try:
+                    return all(json.loads((modules / name / "package.json").read_text())["version"] == version for name, version in expected.items())
+                except (OSError, KeyError, ValueError):
+                    return False
+            if override and not ready():
+                raise InstallError("OPENCROW_OPENCODE_NODE_MODULES does not contain the pinned SDK/client/plugin/Bun versions")
+            if not ready():
+                npm = shutil.which("npm")
+                if not npm:
+                    raise InstallError("OpenCode 2 SDK provisioning requires npm; install Node/npm, then rerun the installer")
+                for name in ("package.json", "package-lock.json"):
+                    shutil.copy2(sdk / name, cache / name)
+                result = subprocess.run([npm, "ci", "--omit=dev", "--no-audit", "--no-fund"], cwd=cache,
+                                        capture_output=True, text=True, timeout=600, check=False)
+                if result.returncode or not ready():
+                    raise InstallError("Locked OpenCode SDK dependency installation failed: " + result.stderr[-2000:])
+            link = sdk / "node_modules"
+            if link.is_symlink():
+                link.unlink()
+            link.symlink_to(modules, target_is_directory=True)
+            bun = modules / ".bin/bun"
+            check = subprocess.run([str(bun), "-e", 'await import("@opencode/sdk"); console.log("ready")'],
+                                   cwd=sdk, capture_output=True, text=True, timeout=30, check=False)
+            if check.returncode:
+                raise InstallError("Pinned OpenCode SDK runtime cannot load: " + check.stderr[-2000:])
+        return {"method": "locked-npm", "sdk": expected["@opencode/sdk"], "bun": expected["bun"],
+                "lock_sha256": lock_hash, "node_modules": str(modules)}
 
     def install_bundle(
         self,
@@ -981,6 +1046,8 @@ class StateEngine:
         agents = list(state.get("selected_agents", []))
         compatibility = self.provider_compatibility(agents)
         self._reject_incompatible(compatibility)
+        if state.get("install_mode") == "full" or "opencode" in agents:
+            self._provision_opencode(self.paths.current)
         managed = self._install_launchers(
             str(state.get("install_mode", "skills")),
             list(state.get("selected_toolboxes", [])),
@@ -1080,11 +1147,18 @@ class StateEngine:
                         servers = parent.get("servers")
                         if isinstance(servers, dict):
                             servers.pop("opencrow-lifecycle", None)
+                if provider == "opencode":
+                    plugin_path = str(self.paths.home / ".config/opencode/plugins/opencrow-lifecycle")
+                    for key in ("plugins", "plugin"):
+                        entries = cleaned.get(key)
+                        if isinstance(entries, list):
+                            cleaned[key] = [entry for entry in entries if (entry.get("package") if isinstance(entry, dict) else entry) not in (plugin_path, plugin_path + ".js")]
                 atomic_text(config, json.dumps(cleaned, indent=2, sort_keys=True) + "\n")
         if provider == "opencode":
-            plugin = self.paths.home / ".config/opencode/plugins/opencrow-lifecycle.js"
-            if plugin.exists():
-                plugin.unlink()
+            for name in ("opencrow-lifecycle.js", "opencrow-lifecycle"):
+                plugin = self.paths.home / ".config/opencode/plugins" / name
+                if plugin.is_symlink() or plugin.is_file():
+                    plugin.unlink()
         if provider == "antigravity":
             mcp = self.paths.home / ".gemini/antigravity-cli/mcp_config.json"
             if mcp.exists():
@@ -1160,7 +1234,8 @@ class StateEngine:
         unresolved: list[str] = []
         commands = {
             "codex": ["npm", "uninstall", "--global", "--prefix", str(self.paths.home / ".local"), "@openai/codex"],
-            "opencode": ["opencode", "uninstall", "--force", "--keep-config", "--keep-data"],
+            # V2 preserves sessions/config/state by default; V1 keep flags were removed.
+            "opencode": ["opencode", "uninstall", "--force"],
         }
         for provider in providers:
             command = commands.get(provider)
@@ -1237,7 +1312,7 @@ class StateEngine:
             removed.append(str(update_cache))
         retained: list[str] = [str(self.paths.backups)] if self.paths.backups.exists() else []
         if purge_env:
-            for path in (self.paths.data / "helper", self.paths.data / "miniconda", self.paths.data / "envs"):
+            for path in (self.paths.data / "helper", self.paths.data / "miniconda", self.paths.data / "envs", self.paths.data / "opencode-sdk"):
                 if path.exists():
                     shutil.rmtree(path)
                     removed.append(str(path))

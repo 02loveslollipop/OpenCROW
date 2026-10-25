@@ -73,7 +73,7 @@ def handle(event: str, provider: str, payload: dict[str, Any], workspace: Path) 
     engine = WorkflowEngine(workspace)
     if not engine.active:
         return 0, {"continue": True}
-    if event in {"session_start", "start", "compact", "compaction"}:
+    if event in {"session_start", "start", "compact", "compaction", "context"}:
         source = str(payload.get("source") or payload.get("matcher") or "").lower()
         if event in {"session_start", "start"} and source != "compact":
             integrity = engine.begin_invocation()

@@ -341,9 +341,9 @@ run_user() {
 }
 
 case "$PACKAGE_MANAGER" in
-  apt) base_packages=(python3 python3-venv curl ca-certificates unzip) ;;
-  dnf|yum) base_packages=(python3 python3-pip curl ca-certificates unzip) ;;
-  pacman) base_packages=(python curl ca-certificates unzip) ;;
+  apt) base_packages=(python3 python3-venv curl ca-certificates unzip nodejs npm) ;;
+  dnf|yum) base_packages=(python3 python3-pip curl ca-certificates unzip nodejs npm) ;;
+  pacman) base_packages=(python curl ca-certificates unzip nodejs npm) ;;
 esac
 preexisting_base=()
 for package in "${base_packages[@]}"; do

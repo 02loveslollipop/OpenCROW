@@ -22,7 +22,7 @@ from generate_wiki import build as build_wiki
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 PAGES = ROOT / "dist-pages"
-SKIP_PARTS = {".git", ".pytest_cache", "__pycache__", ".wrangler"}
+SKIP_PARTS = {".git", ".pytest_cache", "__pycache__", ".wrangler", "node_modules"}
 
 
 def sha256(path: Path) -> str:
@@ -161,7 +161,7 @@ def main() -> int:
     DIST.mkdir(parents=True)
     PAGES.mkdir(parents=True)
 
-    common = ["README.md", "LICENSE", "skills.sh", "packages/lifecycle", "skills", "integrations", "installer"]
+    common = ["README.md", "LICENSE", "skills.sh", "packages/lifecycle", "packages/opencode", "skills", "integrations", "installer"]
     full = ["README.md", "LICENSE", "install.sh", "skills.sh", "packages", "skills", "integrations", "installer", "services/constellation", "docs"]
     stage_bundle(full, DIST / "opencrow-full.zip", version=args.version, mode="full", tag=tag, sha=source_sha)
     stage_bundle(common, DIST / "opencrow-skills.zip", version=args.version, mode="skills", tag=tag, sha=source_sha)

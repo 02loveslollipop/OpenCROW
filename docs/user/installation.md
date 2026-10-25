@@ -11,6 +11,8 @@ bash skills.sh --agents codex,opencode
 
 When Python supports `venv`, the installer creates a small helper. Otherwise it downloads the architecture-specific portable CPython release asset and verifies it against release checksums.
 
+Selecting OpenCode also requires npm to provision the pinned Bun/V2 SDK runtime. This does not install an agent CLI. Full installs provision Node/npm and offer `@opencode/cli@2.1.4`. For a pre-SDK installation, rerun the current installer/bootstrap; the historical updater cannot stage the new SDK package. Offline installs may supply a matching `OPENCROW_OPENCODE_NODE_MODULES` dependency directory. See [OpenCode setup](../../packages/opencode/README.md).
+
 ## Full product
 
 `install.sh` supports Debian/Ubuntu (`apt`), Fedora/RHEL/Rocky (`dnf`/`yum`), and Arch (`pacman`) on Linux x86_64 and ARM64. Unsupported systems receive a compatibility report; no package commands are guessed.

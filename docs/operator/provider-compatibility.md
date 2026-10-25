@@ -3,7 +3,7 @@
 | Provider | Command | Local permissions | Runtime event format | Native resume | Skill discovery |
 | --- | --- | --- | --- | --- | --- |
 | Codex | `codex` | Provider approvals; explicit bypass | SDK notifications | SDK session ID | Codex Agent Skills |
-| OpenCode | `opencode` | Native defaults; explicit `--auto` | JSON events | `--session` | OpenCode Agent Skills |
+| OpenCode 2.0.0+ | Shared V2 SDK bridge | Native defaults; trusted workers approve once | Typed V2 events | Native SDK session ID | OpenCode Agent Skills |
 | Claude Code | `claude` | Native permissions; explicit bypass | stream JSON | `--resume` | Claude Agent Skills |
 | Antigravity | `agy` | Native permissions; explicit bypass | stream JSON | `--conversation` | `.agents/skills` |
 
@@ -12,6 +12,8 @@ The release compatibility source is `integrations/manifest.json`. Install and re
 Runtimes publish command availability, detected version, required minimum, and `compatible`, `incompatible`, or `unknown` status during registration. Constellation rejects incompatible providers during scheduling and execution, permits an available provider whose version is unknown with a warning, and never changes providers silently.
 
 ## Platform release matrix
+
+OpenCode SDK/client/plugin packages are locked to 2.1.4 with Bun 1.4.4; the real SDK and native CLI gate tests that exact build. The SDK host verifies these pins and requires a V2 service version even when CLI discovery was unknown. It never silently falls back to CLI execution. See [runtime setup and test evidence](../../packages/opencode/README.md).
 
 | Operating system | Architecture | Package managers | Status |
 | --- | --- | --- | --- |

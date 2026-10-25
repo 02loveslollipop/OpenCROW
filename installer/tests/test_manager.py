@@ -56,7 +56,7 @@ def test_skills_install_is_rootless_and_omits_heavy_surface(tmp_path: Path) -> N
     assert (paths.home / ".codex/skills/netcat-async").is_symlink()
     assert (paths.home / ".codex/skills/reverse-shell-async").is_symlink()
     assert (paths.home / ".config/opencode/skills/reverse-shell-async").is_symlink()
-    assert (paths.home / ".config/opencode/plugins/opencrow-lifecycle.js").is_file()
+    assert (paths.home / ".config/opencode/plugins/opencrow-lifecycle/index.ts").is_file()
     assert not any("__pycache__" in path.parts for path in paths.current.rglob("*"))
     assert not any(path.suffix in {".pyc", ".pyo"} for path in paths.current.rglob("*"))
 
@@ -414,7 +414,7 @@ def test_opencode_cli_purge_uses_native_keep_data_command(
     state = {"package_methods": {"agent_clis": {"installed": ["opencode"]}}}
     removed, unresolved = StateEngine(paths)._purge_agent_clis(state)
     assert removed == ["opencode"] and unresolved == []
-    assert commands == [["opencode", "uninstall", "--force", "--keep-config", "--keep-data"]]
+    assert commands == [["opencode", "uninstall", "--force"]]
 
 
 def test_opencode_v2_config_shape_is_selected_from_detected_version(
@@ -425,6 +425,37 @@ def test_opencode_v2_config_shape_is_selected_from_detected_version(
     StateEngine(paths).install(source=REPOSITORY, mode="skills", agents=["opencode"])
     config = json.loads((paths.home / ".config/opencode/opencode.json").read_text())
     assert "opencrow-lifecycle" in config["mcp"]["servers"]
+
+
+def test_opencode_v1_config_upgrade_repair_rollback_and_uninstall_preserve_user_entries(tmp_path, monkeypatch):
+    paths = paths_for(tmp_path)
+    monkeypatch.setattr("opencrow_manager.command_version", lambda _command: "opencode 2.1.4")
+    config = paths.home / ".config/opencode/opencode.json"
+    config.parent.mkdir(parents=True)
+    custom = {"type": "local", "command": ["user-server"]}
+    config.write_text(json.dumps({"model": "user/model", "mcp": {"custom": custom, "opencrow-lifecycle": {"type": "local", "command": ["old"]}},
+                                  "plugin": ["user-plugin", ["user-options", {"keep": True}], "opencrow-lifecycle.js"]}))
+    legacy = config.parent / "plugins/opencrow-lifecycle.js"
+    legacy.parent.mkdir()
+    legacy.write_text("// legacy")
+    engine = StateEngine(paths)
+    state = engine.install(source=REPOSITORY, mode="skills", agents=["opencode"])
+    merged = json.loads(config.read_text())
+    assert merged["mcp"]["servers"]["custom"] == custom
+    assert "custom" not in merged["mcp"] and "plugin" not in merged
+    assert merged["plugins"][:2] == ["user-plugin", {"package": "user-options", "options": {"keep": True}}]
+    assert not legacy.exists()
+    assert state["package_methods"]["opencode_sdk"]["sdk"] == "2.1.4"
+    engine.repair()
+    assert json.loads(config.read_text()) == merged
+    engine.install(source=REPOSITORY, mode="skills", agents=["opencode"])
+    engine.rollback()
+    assert json.loads(config.read_text()) == merged
+    engine.uninstall(purge_env=False, purge_system=False, purge_agent_clis=False)
+    cleaned = json.loads(config.read_text())
+    assert cleaned["model"] == "user/model"
+    assert cleaned["mcp"]["servers"] == {"custom": custom}
+    assert cleaned["plugins"] == merged["plugins"][:2]
 
 
 def test_agent_cli_receipts_survive_desired_state_merge() -> None:

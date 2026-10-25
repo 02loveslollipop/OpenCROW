@@ -15,8 +15,15 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          package-manager-cache: false
+      - run: npm ci --prefix packages/opencode
+      - run: npm install --global @opencode/cli@2.1.4
       - run: python -m pip install --upgrade pip pytest -r services/constellation/requirements-runtime.txt
       - run: make test
+      - run: bash scripts/test_opencode_v2.sh
       - run: make smoke
       - uses: actions/cache@v6
         with:
@@ -25,6 +32,8 @@ jobs:
           restore-keys: docs-external-
       - run: python scripts/validate_docs.py --check-external
       - run: bash scripts/test_installation_e2e.sh
+        env:
+          OPENCROW_OPENCODE_NODE_MODULES: ${{ github.workspace }}/packages/opencode/node_modules
 
   distro-selection:
     strategy:

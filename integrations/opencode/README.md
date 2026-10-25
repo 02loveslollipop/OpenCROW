@@ -1,5 +1,11 @@
 # OpenCode integration
 
-OpenCROW installs universal skills into OpenCode's native global skills directory. A local JavaScript plugin maps system-context, compaction, tool, and idle events into the shared lifecycle engine; the MCP entry is merged into `opencode.json`.
+OpenCROW targets OpenCode **2.0.0+**, tested with **2.1.4**. Managed execution uses the shared [V2 SDK adapter](../../packages/opencode/README.md) for worker MCP, Constellation and `opencrow-init opencode`. It pins `@opencode/sdk`, `@opencode/client` and `@opencode/plugin` to 2.1.4 and Bun to 1.4.4. There is no CLI execution fallback.
 
-Runtime turns use `opencode run --format json --auto`, capture the native JSON session ID, and resume with `--session`. The installer selects the supported v1 or v2 MCP configuration shape from the detected CLI version and rejects versions below the release-manifest minimum.
+The native connector uses `Plugin.define`, typed context/compaction/tool hooks and an event subscription with cleanup. Initialization is persisted once per native session. Context reconciliation runs before each model call. Missing or malformed lifecycle helpers fail open; explicit exit 2 blocks supported hooks. SDK completion calls the plugin's lifecycle RPC on the executing host and refuses success on an idle block. Native interactive completion events are observations: V2 has no blocking idle hook, so their checks record state rather than retroactively stopping a completed execution.
+
+The installer links a **plugin directory** at `~/.config/opencode/plugins/opencrow-lifecycle`, adds it to plural `plugins`, merges lifecycle MCP under `mcp.servers`, and links universal skills under `~/.config/opencode/skills`. V1 flat MCP entries and singular plugin arrays are migrated while retaining unrelated definitions. Config and legacy plugin files are backed up. Repair, rollback and uninstall preserve user entries.
+
+Use the current installer/bootstrap to upgrade an installation created before SDK support: the historical updater does not know how to stage the new SDK package. Selecting OpenCode in a skills install requires npm to provision the locked Bun/SDK runtime; the skills product still does not install the CLI. The full installer offers `@opencode/cli@2.1.4` and provisions Node/npm. Dependency receipts record versions and lock hash; offline provisioning can use a matching `OPENCROW_OPENCODE_NODE_MODULES` directory.
+
+Upstream contracts: [embedded SDK](https://dev.opencode.ai/v2/docs/build/sdk/), [client](https://dev.opencode.ai/v2/docs/build/client/), [plugin migration](https://dev.opencode.ai/v2/docs/build/plugins/migrate-v1), [MCP](https://dev.opencode.ai/v2/docs/mcp-servers/) and [skills](https://dev.opencode.ai/v2/docs/skills/).
