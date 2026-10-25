@@ -10,6 +10,7 @@ from opencrow_web_proxy import environment, status
 from opencrow_web_proxy_store import ProxyError, write_private, private_dir
 
 PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy")
+TRUST_KEYS = ("REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS")
 
 
 def attach(identity, workspace, directory, correlation, *, source_workspace=None):
@@ -34,7 +35,7 @@ def attach(identity, workspace, directory, correlation, *, source_workspace=None
 
 
 def provider_environment(base, route):
-    result = {k: v for k, v in base.items() if k not in PROXY_KEYS}
+    result = {k: v for k, v in base.items() if k not in (*PROXY_KEYS, *TRUST_KEYS)}
     result.update(BASH_ENV=route["shell_hook"], OPENCROW_WEB_PROXY_SESSION=route["session_id"], OPENCROW_WEB_PROXY_TOOL_ENV=route["tool_environment"])
     return result
 

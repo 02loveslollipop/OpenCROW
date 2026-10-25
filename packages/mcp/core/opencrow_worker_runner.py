@@ -263,6 +263,9 @@ class Runner:
                                ("stdout.jsonl", "stderr.log", "supervisor.log", "prompt.txt", "review.json")}
         if worker.get("supervisor_log"):
             result["artifacts"]["supervisor.log"] = worker["supervisor_log"]
+        if worker.get("proxy_session_id"):
+            result["artifacts"]["proxy-session.json"] = str(Path(worker["turn_artifacts"]) / "proxy-session.json")
+            result["proxy_history_uri"] = f"opencrow://opencrow-web-proxy-mcp/sessions/{worker['proxy_session_id']}/history"
         return result
 
     def status(self, worker_id=None):

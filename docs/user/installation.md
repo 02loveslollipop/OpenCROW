@@ -33,3 +33,5 @@ opencrow update --bundle /media/opencrow-full.zip
 ```
 
 Missing external packages in bundle mode are reported as unresolved rather than silently substituted.
+
+The full **web** toolbox includes the [native HTTP(S) proxy](web-proxy.md), its MCP controls and pinned Python dependencies. It requires no Burp/ZAP installation. No listener, proxy environment or CA trust is activated by installation. Doctor reports module availability; update, rollback and uninstall stop owned listeners and destroy interception keys while preserving private history for explicit deletion.

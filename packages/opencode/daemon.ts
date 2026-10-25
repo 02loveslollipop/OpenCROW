@@ -66,8 +66,8 @@ async function request(socket: Socket<Connection>, input: Request) {
         if (p[key] === null) delete p[key]
         else if (p[key] !== undefined && typeof p[key] !== "string") throw new Error(`${key} must be a string`)
       }
-      if (p.environment && (typeof p.environment !== "object" || Object.keys(p.environment).some(key => !["OPENCROW_WORKER_STATE_DIR", "OPENCROW_WORKER_ID", "OPENCROW_WORKER_TURN_TOKEN"].includes(key)))) {
-        throw new Error("Only per-turn worker reporting variables may be passed through the bridge")
+      if (p.environment && (typeof p.environment !== "object" || Array.isArray(p.environment) || Object.entries(p.environment).some(([key, value]) => typeof value !== "string" || !["OPENCROW_WORKER_STATE_DIR", "OPENCROW_WORKER_ID", "OPENCROW_WORKER_TURN_TOKEN", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "OPENCROW_WEB_PROXY_SESSION", "OPENCROW_WEB_PROXY_TOOL_ENV"].includes(key)))) {
+        throw new Error("Only per-turn worker reporting and proxy tool variables may be passed through the bridge")
       }
       await adapter.turn(p as TurnInput, event => {
         socket.data.sessions.add(event.session_id)

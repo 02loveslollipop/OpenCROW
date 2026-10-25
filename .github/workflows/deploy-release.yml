@@ -52,7 +52,7 @@ jobs:
 
       - name: Validate code and documentation
         run: |
-          python -m pip install --upgrade pip pytest -r services/constellation/requirements-runtime.txt
+          python -m pip install --upgrade pip pytest -r services/constellation/requirements-runtime.txt -r packages/mcp/requirements-web-proxy.txt
           make test
           make smoke
           python scripts/validate_docs.py --check-external

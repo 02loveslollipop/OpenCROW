@@ -1,6 +1,6 @@
 ---
 name: opencrow-web-toolbox
-description: Use the installed web CTF tooling for endpoint discovery, fuzzing, and automated SQL injection workflows. Use when an agent needs `sqlmap`, `gobuster`, `ffuf`, `dirb`, or `wfuzz`, and when full installs may also include manual Burp or ZAP steps.
+description: Use the native headless HTTP(S) proxy and installed web CTF tooling for scoped traffic inspection, interception, editing, replay, discovery, fuzzing and SQL injection workflows.
 ---
 
 # OpenCROW Web Toolbox
@@ -31,8 +31,10 @@ python3 scripts/verify_toolkit.py
 2. Use `wfuzz` when the problem is parameter fuzzing or more custom request mutation.
 3. Use `sqlmap` when the challenge is plausibly SQLi-driven and the target is stable enough for automation.
 4. Use `playwright` separately when the task needs a real browser or a JS-heavy flow.
-5. If a full profile was installed, use the manual Burp/ZAP links from the installer summary for GUI-heavy workflows.
-6. Prefer the MCP server operations first: `toolbox_info`, `toolbox_verify`, `toolbox_capabilities`, `web_discover`, `web_fuzz`, and `web_sqlmap_scan`.
+5. For agent traffic, use `web_proxy_start` with the existing workspace and exact authorized host/port/path targets. Observation and opaque HTTPS are defaults. Private targets need `allow_private`; TLS interception and raw evidence each require explicit session options. Provider/model APIs stay excluded.
+6. Route tool commands with `opencrow-web-proxy env SESSION_ID -- COMMAND`, or attach `proxy_session_id` to a worker. Never apply the tool environment to the provider/model process. Direct sockets and applications ignoring proxies are not captured; configure browser/Playwright proxy authentication explicitly inside its launch script.
+7. Read `web_proxy_history` and request/response metadata first. Opt into `web_proxy_intercept_set` pause mode before `web_proxy_request_edit`, then forward/drop that request ID. Replay is queued and must be polled; side-effectful methods require explicit confirmation. Export sanitized HAR/JSONL when evidence is needed across turns.
+8. Prefer typed MCP operations. Burp/ZAP remain optional GUI workflows; the native proxy requires neither. See [proxy protocol, trust and cleanup](references/proxy.md).
 
 ## Tool Selection
 
@@ -45,5 +47,6 @@ python3 scripts/verify_toolkit.py
 ## Resources
 
 - `opencrow-web-mcp`: stdio MCP server for typed discovery, fuzzing, and sqlmap workflows.
+- `opencrow-web-proxy-mcp`: standalone native proxy controls with stable session/history resources; these tools are also exposed by `opencrow-web-mcp`.
 - `scripts/verify_toolkit.py`: confirm that the mapped web discovery tools are installed.
 - `references/tooling.md`: quick selection notes for web workflows.

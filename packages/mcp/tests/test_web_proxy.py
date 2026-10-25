@@ -239,3 +239,130 @@ def test_crash_recovery_marks_paused_request_interrupted_without_replay(sessions
     proxy.start({"session_id": identity})
     assert poll(identity, flow["id"], "interrupted")["error"]
     assert not proxy.status(identity)["pending"]
+
+
+def test_scoped_rules_framing_validation_private_denial_and_protocol_envelope(sessions, target):
+    identity = sessions(target, capture_bytes=64)["session_id"]
+    proxy.rpc(identity, "rules", {"rules": [{"host": "127.0.0.1", "port": target, "path_prefix": "/rule", "edit": {"method": "POST", "headers": {"Cookie": "rewrite-secret"}, "body_base64": base64.b64encode(b"rule-body").decode()}}]})
+    assert request(identity, target, "/rule").content == b"rule-body"
+    assert "rewrite-secret" not in json.dumps(proxy.rpc(identity, "rules"))
+    assert not invoke("web_proxy_rules", session_id=identity, rules=[{"host": "127.0.0.1", "port": target + 1}])["ok"]
+    assert request(identity, target, "/unmatched").content == b"/unmatched"
+    proxy.rpc(identity, "intercept", {"mode": "pause", "pause_timeout_sec": 2})
+    with ThreadPoolExecutor() as pool:
+        future = pool.submit(request, identity, target, "/reject-edit")
+        flow = poll(identity, state="paused")
+        for edit in ({"headers": {"Host": "evil"}}, {"headers": {"Content-Length": "999"}}, {"headers": {"X-Test": "a\r\nInjected: true"}}, {"url": f"http://127.0.0.1:{target + 1}/outside"}):
+            assert not invoke("web_proxy_request_edit", session_id=identity, request_id=flow["id"], edit=edit)["ok"]
+        proxy.rpc(identity, "forward", {"request_id": flow["id"]})
+        assert future.result().status_code == 200
+    unapproved = sessions(target, targets=[{"host": "127.0.0.1", "port": target}])["session_id"]
+    assert request(unapproved, target).status_code == 403
+    # HTTP/2 prior knowledge is explicitly declined rather than parsed as H1.
+    endpoint_port = int(proxy.status(identity)["endpoint"].rsplit(":", 1)[1])
+    with socket.create_connection(("127.0.0.1", endpoint_port), timeout=2) as client:
+        client.sendall(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+        assert b"505" in client.recv(1024)
+
+
+def test_resource_schema_self_test_and_explicit_deletion(sessions, target):
+    identity = sessions(target)["session_id"]
+    assert request(identity, target).status_code == 200
+    flow = poll(identity)
+    server = mcp.build_server()
+    response = server._handle_message({"jsonrpc": "2.0", "id": 3, "method": "resources/read", "params": {"uri": f"opencrow://{server.server_name}/sessions/{identity}/history"}})
+    assert flow["id"] in json.dumps(response)
+    assert not invoke("web_proxy_history", session_id=identity, limit=True)["ok"]
+    assert not invoke("web_proxy_history", session_id=identity, unknown="secret")["ok"]
+    assert invoke("web_proxy_delete", session_id=identity, request_id=flow["id"])["ok"]
+    assert not history(identity)
+    proxy.stop(identity)
+    assert invoke("web_proxy_delete", session_id=identity)["ok"]
+
+
+def test_routing_leaves_model_process_clean_and_supports_explicit_tools(sessions, target, tmp_path):
+    from opencrow_web_proxy_routing import attach, provider_environment
+    identity = sessions(target)["session_id"]
+    route = attach(identity, tmp_path, tmp_path / "private-route", {"worker_id": "worker-test", "provider": "fixture"})
+    env = provider_environment(dict(os.environ), route)
+    assert not any(key in env for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"))
+    code = 'import os,urllib.request; assert os.environ.get("http_proxy"); print(urllib.request.urlopen(os.environ["TARGET"]).status)'
+    env.update(TARGET=f"http://127.0.0.1:{target}/tool", PYTHON=sys.executable, CODE=code)
+    result = subprocess.run(["bash", "-c", 'exec "$PYTHON" -c "$CODE"'], env=env, text=True, capture_output=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+    assert poll(identity)["correlation"]["worker_id"] == "worker-test"
+    # A provider distributed as a shell script must not source tool proxy settings.
+    script = tmp_path / "provider.sh"
+    script.write_text('#!/bin/bash\n[ -z "${http_proxy-}" ]\n')
+    assert subprocess.run(["bash", str(script)], env=env).returncode == 0
+    command = [sys.executable, str(Path(proxy.__file__).resolve()), "env", identity, "--", sys.executable, "-c", code]
+    result = subprocess.run(command, env=env, text=True, capture_output=True, timeout=5)
+    assert result.returncode == 0, result.stderr
+
+
+def test_explicit_provider_scope_and_edit_body_limit(sessions, target):
+    protected = sessions(target, provider_hosts=["127.0.0.1"])["session_id"]
+    assert request(protected, target).status_code == 403
+    assert history(protected) == []
+    opted_in = sessions(target, provider_hosts=["127.0.0.1"], capture_provider_traffic=True)["session_id"]
+    assert request(opted_in, target).status_code == 200
+    identity = sessions(target, targets=[{"host": "127.0.0.1", "port": target, "path_prefix": "/allowed/", "allow_private": True}])["session_id"]
+    assert request(identity, target, "/allowed/ok").status_code == 200
+    assert request(identity, target, "/allowed/%2e%2e/outside").status_code == 403
+    proxy.rpc(identity, "intercept", {"mode": "pause"})
+    assert request(identity, target, "/allowed/upload", method="POST", data=b"x" * (1048576 + 1)).status_code == 413
+
+
+def test_paused_client_disconnect_clears_pending_without_forwarding(sessions, target):
+    identity = sessions(target)["session_id"]
+    proxy.rpc(identity, "intercept", {"mode": "pause", "pause_timeout_sec": 30})
+    env = proxy.environment(identity)
+    auth = env["http_proxy"].split("//", 1)[1].split("@", 1)[0]
+    endpoint_port = int(proxy.status(identity)["endpoint"].rsplit(":", 1)[1])
+    client = socket.create_connection(("127.0.0.1", endpoint_port), timeout=2)
+    client.sendall(f"GET http://127.0.0.1:{target}/cancelled HTTP/1.1\r\nHost: 127.0.0.1:{target}\r\nProxy-Authorization: Basic {base64.b64encode(auth.encode()).decode()}\r\n\r\n".encode())
+    flow = poll(identity, state="paused")
+    client.close()
+    failed = poll(identity, flow["id"], "failed")
+    assert "disconnected" in failed["error"]
+    assert not proxy.status(identity)["pending"]
+    assert not invoke("web_proxy_forward", session_id=identity, request_id=flow["id"])["ok"]
+
+
+def test_redirect_userinfo_and_unknown_headers_are_redacted():
+    from opencrow_web_proxy_store import safe_headers
+    value = safe_headers([("Location", "https://login:redirect-secret@example.test/path?token=query-secret"), ("X-Custom", "custom-secret")])
+    assert not any(secret in json.dumps(value) for secret in ("redirect-secret", "query-secret", "custom-secret"))
+
+
+def test_obs_text_headers_and_chunked_request_trailers_are_not_silently_replayed(sessions, target):
+    identity = sessions(target, allow_raw_access=True)["session_id"]
+    assert request(identity, target, "/obs", headers={"X-Obs": "\xff"}).status_code == 200
+    raw = proxy.rpc(identity, "get", {"request_id": poll(identity)["id"], "raw": True})
+    assert ["X-Obs", "\xff"] in raw["raw_metadata"]["headers"]
+    env = proxy.environment(identity)
+    auth = env["http_proxy"].split("//", 1)[1].split("@", 1)[0]
+    port = int(proxy.status(identity)["endpoint"].rsplit(":", 1)[1])
+    connection = http.client.HTTPConnection("127.0.0.1", port)
+    connection.putrequest("POST", f"http://127.0.0.1:{target}/trailers")
+    connection.putheader("Proxy-Authorization", "Basic " + base64.b64encode(auth.encode()).decode())
+    connection.putheader("Transfer-Encoding", "chunked"); connection.putheader("Trailer", "X-Trail"); connection.endheaders()
+    connection.send(b"3\r\nabc\r\n0\r\nX-Trail: trailer-secret\r\n\r\n")
+    response = connection.getresponse(); assert response.status == 200; response.read(); connection.close()
+    flow = poll(identity)
+    assert flow["request_body"]["trailers_present"]
+    assert not invoke("web_proxy_replay", session_id=identity, request_id=flow["id"], confirm_side_effects=True)["ok"]
+    assert "trailer-secret" not in json.dumps(history(identity))
+
+
+def test_retention_is_applied_when_reading_stopped_history(sessions, target):
+    import sqlite3
+    identity = sessions(target, retention_sec=60)["session_id"]
+    assert request(identity, target).status_code == 200
+    flow = poll(identity)
+    proxy.stop(identity)
+    path = session_dir(identity)
+    with sqlite3.connect(path / "history.sqlite") as db:
+        db.execute("UPDATE flows SET created=?", (time.time() - 120,))
+    assert invoke("web_proxy_history", session_id=identity)["observations"][0]["requests"] == []
+    assert not (path / "raw" / flow["id"]).exists()

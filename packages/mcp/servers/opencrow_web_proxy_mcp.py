@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import opencrow_web_proxy as proxy
-from opencrow_web_proxy_store import ProxyError, Store, session_dir
+from opencrow_web_proxy_store import ProxyError, Store, session_dir, SESSION_ID
 from opencrow_mcp_core import (MCPTool, MCPResourceTemplate, StdioMCPServer, json_resource_contents,
     success_envelope, error_envelope, make_toolbox_info_handler, make_toolbox_self_test_handler, make_toolbox_capabilities_handler)
 
@@ -85,7 +85,7 @@ def operation(identity, method, arguments):
 
 def invoke(name, arguments, toolbox=TOOLBOX_ID):
     # Never echo edit bodies, target query strings or raw headers into envelopes.
-    inputs = {key: arguments[key] for key in ("session_id", "request_id") if isinstance(arguments, dict) and key in arguments and isinstance(arguments[key], str) and len(arguments[key]) == 32}
+    inputs = {key: arguments[key] for key in ("session_id", "request_id") if isinstance(arguments, dict) and key in arguments and isinstance(arguments[key], str) and SESSION_ID.fullmatch(arguments[key])}
     try:
         validate(arguments, TOOLS[name][1])
         args = dict(arguments); identity = args.pop("session_id", None); method = TOOLS[name][2]
@@ -97,7 +97,7 @@ def invoke(name, arguments, toolbox=TOOLBOX_ID):
             if method == "delete": method = "delete_request"
             result = operation(identity, method, args)
         return success_envelope(toolbox=toolbox, operation=name, summary="Proxy operation recorded; inspect request state for network outcome.", inputs=inputs, observations=[result],
-                                artifacts=[{"path": result["path"]}] if name == "web_proxy_export" else [], command=["OpenCROW owned proxy", method])
+                                artifacts=[result["path"]] if name == "web_proxy_export" else [], command="OpenCROW owned proxy control: " + method)
     except (ProxyError, OSError, ValueError, KeyError, TypeError) as exc:
         message = str(exc) if isinstance(exc, ProxyError) else "Proxy operation failed; check session health and input schema"
         return error_envelope(toolbox=toolbox, operation=name, summary=message, inputs=inputs, stderr=message, exit_code=2)

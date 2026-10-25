@@ -11,7 +11,8 @@ import socket
 import ssl
 import time
 import uuid
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, unquote
+import posixpath
 
 import h11
 from opencrow_web_proxy_store import (Capture, ProxyError, Store, PROVIDER_HOSTS, hostname, safe_url, safe_headers, integer, write_private)
@@ -39,6 +40,11 @@ def parse_url(url):
 def cleaned(headers):
     tokens = {token.strip().lower() for key, value in headers if key.lower() == "connection" for token in value.split(",")}
     return [(key, value) for key, value in headers if key.lower() not in HOP | tokens]
+
+
+def wire_headers(headers):
+    # HTTP/1.1 permits obs-text bytes in values; preserve their Latin-1 mapping.
+    return [(key.encode("ascii"), value.encode("latin1")) for key, value in headers]
 
 
 def request_headers(meta, body_length=None):
@@ -73,6 +79,8 @@ def edit_request(meta, body, edit):
         raise ProxyError("Host and framing headers are computed from the URL/body; edit those fields instead")
     remove = {x.lower() for x in removals} | {x.lower() for x in headers}
     result["headers"] = [(k, v) for k, v in result["headers"] if k.lower() not in remove] + list(headers.items())
+    if sum(len(k) + len(v) for k, v in result["headers"]) > 32768:
+        raise ProxyError("Edited header limit exceeded")
     if "body_base64" in edit:
         if any(k.lower() == "content-encoding" and v.lower() != "identity" for k, v in result["headers"]):
             raise ProxyError("Remove Content-Encoding when replacing a compressed body")
@@ -81,7 +89,7 @@ def edit_request(meta, body, edit):
     if len(body) > 1048576:
         raise ProxyError("Edited/replay bodies are limited to 1 MiB")
     # h11 validates method/header syntax and rejects CR/LF injection.
-    try: h11.Request(method=result["method"], target="/", headers=request_headers(result, len(body)))
+    try: h11.Request(method=result["method"], target="/", headers=wire_headers(request_headers(result, len(body))))
     except (h11.ProtocolError, UnicodeError) as exc: raise ProxyError("Invalid method or header syntax") from exc
     return result, body
 
@@ -103,6 +111,12 @@ class Engine:
         if not self.config["capture_provider_traffic"] and any(host == h or host.endswith("." + h) for h in (*PROVIDER_HOSTS, *self.config["provider_hosts"])):
             raise ProxyError("Provider/model API destinations are excluded")
         matches = [t for t in self.config["targets"] if t["host"] == host and t["port"] == port and (connect or (p.path or "/").startswith(t["path_prefix"]))]
+        if matches and not connect and all(t["path_prefix"] != "/" for t in matches):
+            decoded = p.path or "/"
+            for _ in range(3): decoded = unquote(decoded)
+            normalized = posixpath.normpath(decoded)
+            if "%25" in p.path.lower() or "\\" in decoded or any(ord(c) < 32 for c in decoded) or not any(normalized.startswith(t["path_prefix"]) or normalized == t["path_prefix"].rstrip("/") for t in matches):
+                raise ProxyError("Encoded path escapes the authorized path prefix")
         if not matches:
             raise ProxyError("Destination is outside the authorized target scope")
         if connect and not self.config["tls_intercept"] and not any(t["path_prefix"] == "/" for t in matches):
@@ -139,6 +153,7 @@ class Engine:
                 "method": meta["method"], "url": safe_url(meta["url"]), "host": host, "port": port,
                 "request_headers": safe_headers(meta["headers"]), "workspace": self.config["workspace"],
                 "correlation": {**self.config["correlation"], **correlation}, "replay_of": replay_of}
+        flow["original_request"] = {"method": meta["method"], "url": safe_url(meta["url"]), "headers": safe_headers(meta["headers"])}
         self.store.save(flow)
         return flow
 
@@ -202,6 +217,8 @@ class Engine:
                     if not isinstance(event, h11.Request): raise ProxyError("HTTP request expected")
                     if event.http_version != b"1.1": await self.error(writer, 505); return
                     headers = [(k.decode("ascii"), v.decode("latin1")) for k, v in event.headers.raw_items()]
+                    names = {key.lower() for key, _ in headers}
+                    if {"content-length", "transfer-encoding"} <= names: raise ProxyError("Ambiguous HTTP framing is forbidden")
                     if sum(len(k) + len(v) for k, v in headers) > 32768: raise ProxyError("Header limit exceeded")
                     if correlation is None:
                         try: corr = self.authenticate(headers)
@@ -209,7 +226,7 @@ class Engine:
                     else: corr = correlation
                     if event.method == b"CONNECT":
                         if tunnel: raise ProxyError("Nested CONNECT is forbidden")
-                        await self.connect(event, conn, reader, writer, corr)
+                        await self.connect(event, conn, reader, writer, corr, started_response)
                         return
                     if any(k.lower() == "upgrade" for k, _ in headers): await self.error(writer, 426); return
                     target = event.target.decode("ascii")
@@ -230,12 +247,12 @@ class Engine:
                 raise
             except Exception as exc:
                 if flow:
-                    flow.update(state="failed", error="deadline_exceeded" if isinstance(exc, TimeoutError) else "scope_denied" if isinstance(exc, ProxyError) else "upstream_or_protocol_error", finished=time.time()); self.store.save(flow)
+                    flow.update(state="failed", error="deadline_exceeded" if isinstance(exc, TimeoutError) else str(exc) if isinstance(exc, ProxyError) else "upstream_tls_verification_failed" if isinstance(exc, ssl.SSLCertVerificationError) else "upstream_or_protocol_error", finished=time.time()); self.store.save(flow)
                 if not started_response[0]:
                     await self.error(writer, 504 if isinstance(exc, TimeoutError) else 413 if isinstance(exc, BodyLimit) else 403 if isinstance(exc, ProxyError) else 502)
                 return
 
-    async def connect(self, event, conn, reader, writer, correlation):
+    async def connect(self, event, conn, reader, writer, correlation, started_response):
         target = event.target.decode("ascii")
         p, host, port, ip = await self.scope("https://" + target, connect=True)
         if p.path or p.query or ":" not in target: raise ProxyError("CONNECT requires host:port")
@@ -249,6 +266,7 @@ class Engine:
                 from opencrow_web_proxy_tls import server_context
                 if conn.trailing_data[0]: raise ProxyError("Early TLS data before CONNECT acknowledgement is unsupported")
                 context = server_context(self.path / "ca", host)
+                started_response[0] = True
                 await self.send(writer, conn, h11.Response(status_code=200, headers=[]))
                 await writer.start_tls(context, ssl_handshake_timeout=10, ssl_shutdown_timeout=2)
                 if writer.get_extra_info("ssl_object").selected_alpn_protocol() not in {None, "http/1.1"}: raise ProxyError("HTTP/2 interception is unsupported")
@@ -256,6 +274,7 @@ class Engine:
             else:
                 upstream_reader, upstream_writer = await asyncio.open_connection(ip, port)
                 try:
+                    started_response[0] = True
                     await self.send(writer, conn, h11.Response(status_code=200, headers=[]))
                     if conn.trailing_data[0]: upstream_writer.write(conn.trailing_data[0]); await upstream_writer.drain()
                     counts = [0, 0]
@@ -278,7 +297,8 @@ class Engine:
         while True:
             event = await self.next_event(conn, reader)
             if isinstance(event, h11.EndOfMessage):
-                if forward: await forward(h11.EndOfMessage(headers=cleaned([(k.decode(), v.decode("latin1")) for k, v in event.headers])))
+                capture.trailers = [(k.decode(), v.decode("latin1")) for k, v in event.headers]
+                if forward: await forward(h11.EndOfMessage(headers=wire_headers(cleaned([(k.decode(), v.decode("latin1")) for k, v in event.headers]))))
                 return bytes(body)
             if not isinstance(event, h11.Data): raise ProxyError("Incomplete request body")
             capture.feed(event.data)
@@ -302,6 +322,7 @@ class Engine:
             buffered = replay_body is not None or pause or bool(rules)
             if replay_body is None and buffered:
                 body = await self.request_body(conn, reader, request_capture)
+                if request_capture.trailers: raise ProxyError("Request trailers can be observed but cannot be edited")
             elif replay_body is not None: request_capture.feed(body)
             if buffered:
                 versions["original"] = (original, request_capture)
@@ -314,29 +335,41 @@ class Engine:
                     event = asyncio.Event()
                     self.pending[flow["id"]] = {"event": event, "meta": meta, "body": body, "decision": None, "flow": flow}
                     flow["state"] = "paused"; self.store.save(flow)
+                    async def disconnected():
+                        while not reader.at_eof() and not writer.is_closing(): await asyncio.sleep(.05)
+                    decision_task = asyncio.create_task(event.wait())
+                    disconnect_task = asyncio.create_task(disconnected())
                     try:
-                        await asyncio.wait_for(event.wait(), self.config["pause_timeout_sec"])
+                        done, _ = await asyncio.wait([decision_task, disconnect_task], timeout=self.config["pause_timeout_sec"], return_when=asyncio.FIRST_COMPLETED)
+                        if not done: raise TimeoutError()
+                        if disconnect_task in done and not event.is_set(): raise ProxyError("Client disconnected while request was paused")
                     except TimeoutError:
                         if self.config["timeout_policy"] == "drop": raise ProxyError("Interception deadline: dropped")
                     finally:
                         pending = self.pending.pop(flow["id"])
+                        decision_task.cancel(); disconnect_task.cancel()
+                        await asyncio.gather(decision_task, disconnect_task, return_exceptions=True)
                     if pending["decision"] == "drop": raise ProxyError("Request dropped")
                     meta, body = pending["meta"], pending["body"]
                 meta, body = edit_request(meta, body, {})
                 modified_capture.feed(body)
-            flow.update(state="forwarding", url=safe_url(meta["url"]), method=meta["method"], modified=meta != original or (buffered and body != bytes(request_capture.data)))
+            flow.update(state="forwarding", url=safe_url(meta["url"]), method=meta["method"], modified=meta != original or (buffered and modified_capture.summary()["sha256"] != request_capture.summary()["sha256"]))
+            _, effective_host, effective_port = parse_url(meta["url"])
+            flow.update(host=effective_host, port=effective_port, request_headers=safe_headers(request_headers(meta, len(body) if buffered else None)))
+            flow["modified_request"] = {"method": flow["method"], "url": flow["url"], "headers": flow["request_headers"]}
             self.store.save(flow)
             upstream_reader, upstream_writer = await self.open_upstream(meta)
             upstream = h11.Connection(h11.CLIENT, max_incomplete_event_size=32768)
             p, _, _ = parse_url(meta["url"])
             path = urlunsplit(("", "", p.path or "/", p.query, ""))
-            await self.send(upstream_writer, upstream, h11.Request(method=meta["method"], target=path, headers=request_headers(meta, len(body) if buffered else None)))
+            await self.send(upstream_writer, upstream, h11.Request(method=meta["method"], target=path, headers=wire_headers(request_headers(meta, len(body) if buffered else None))))
             if buffered:
                 await self.send(upstream_writer, upstream, h11.Data(data=body))
                 await self.send(upstream_writer, upstream, h11.EndOfMessage())
             else:
                 await self.request_body(conn, reader, request_capture, lambda event: self.send(upstream_writer, upstream, event))
                 modified_capture = request_capture
+            if request_capture.trailers: original["trailers"] = request_capture.trailers
             versions.update(original=(original, request_capture), modified=(meta, modified_capture))
             flow["request_body"] = request_capture.summary()
             flow["modified_request_body"] = modified_capture.summary()
@@ -352,12 +385,16 @@ class Engine:
                     flow.update(status=event.status_code, response_headers=safe_headers(response_meta["headers"]), response_started=time.time())
                     if writer:
                         if started_response is not None: started_response[0] = True
-                        await self.send(writer, conn, h11.Response(status_code=event.status_code, headers=cleaned(response_meta["headers"])))
+                        await self.send(writer, conn, h11.Response(status_code=event.status_code, headers=wire_headers(cleaned(response_meta["headers"]))))
                 elif isinstance(event, h11.Data):
                     response_capture.feed(event.data)
                     if writer: await self.send(writer, conn, h11.Data(data=event.data))
                 elif isinstance(event, h11.EndOfMessage):
-                    if writer: await self.send(writer, conn, h11.EndOfMessage(headers=cleaned([(k.decode(), v.decode("latin1")) for k, v in event.headers])))
+                    response_capture.trailers = [(k.decode(), v.decode("latin1")) for k, v in event.headers]
+                    if response_meta is not None and response_capture.trailers:
+                        response_meta["trailers"] = response_capture.trailers
+                        flow["response_trailers"] = safe_headers(response_capture.trailers)
+                    if writer: await self.send(writer, conn, h11.EndOfMessage(headers=wire_headers(cleaned([(k.decode(), v.decode("latin1")) for k, v in event.headers]))))
                     flow.update(state="completed", response_body=response_capture.summary(), finished=time.time())
                     break
                 else: raise ProxyError("Incomplete upstream response")
@@ -383,6 +420,7 @@ class Engine:
         if edit is not None:
             meta, body = edit_request(item["meta"], item["body"], edit)
             await self.scope(meta["url"])
+            if self.pending.get(identity) is not item or item["event"].is_set(): raise ProxyError("Request expired while the edit was being validated")
             item.update(meta=meta, body=body)
             cap = Capture(self.config["capture_bytes"]); cap.feed(body)
             self.store.save(item["flow"], {"modified": (meta, cap)})
@@ -395,7 +433,7 @@ class Engine:
         flow = self.store.get(identity)
         meta, body = self.store.raw(identity, "modified" if flow.get("modified") else "original")
         summary = flow.get("modified_request_body" if flow.get("modified") else "request_body", {})
-        if summary.get("truncated", True) or flow["method"] == "CONNECT": raise ProxyError("Truncated bodies and opaque tunnels cannot be replayed")
+        if summary.get("truncated", True) or summary.get("trailers_present") or flow["method"] == "CONNECT": raise ProxyError("Truncated bodies, request trailers and opaque tunnels cannot be replayed")
         meta, body = edit_request(meta, body, edit or {})
         if meta["method"].upper() not in {"GET", "HEAD", "OPTIONS"} and confirm is not True:
             raise ProxyError("Replay of side-effectful methods requires confirm_side_effects=true")
@@ -424,4 +462,4 @@ class Engine:
 
 
 class BodyLimit(ProxyError):
-    pass
+    def __init__(self): super().__init__("Interception body limit exceeded")

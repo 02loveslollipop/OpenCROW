@@ -107,3 +107,9 @@ Worker states are `starting`, `running`, `waiting_for_instructions`, `completed`
 Git worktrees use a unique branch per logical worker. Shared mode permits multiple workers on the same files, while a single logical worker cannot execute overlapping turns. Checkpoint handoff retains workspace and provider history but starts a fresh native conversation. Processes, branches, and worktrees are never silently adopted, replayed, integrated, or deleted.
 
 Deterministic tests use fake CLI executables and real subprocesses. Optional authenticated checks can be enabled with `OPENCROW_WORKER_LIVE_MODELS`, a JSON object mapping provider names to explicit model IDs, when running `packages/mcp/tests/test_worker_live.py`. They consume model quota, use disposable Git repositories/worktrees, and verify question/reply and native continuation. Ordinary CI skips these checks.
+
+## Native web proxy
+
+`opencrow-web-proxy-mcp` controls an OpenCROW-owned asyncio/h11 proxy daemon through a private Unix socket. Its typed `web_proxy_*` tools are also registered in `opencrow-web-mcp`; existing discovery and scanner operations keep their contracts. Start and replay admission do not imply completed network operations. History/resources use stable session and request IDs, with bounded redacted views and explicit raw-evidence capabilities. Replay is queued; pause decisions have deadlines. The daemon owns TLS policy, certificates, request mutation, streaming relay, retention and cleanup. See the [protocol and ownership contract](user/web-proxy.md).
+
+Worker/challenge attachment keeps model/API processes outside the proxy. Native tool environments or scoped tool-shell/launcher setup carry the route, with private credentials omitted from ordinary artifacts. Public session references persist across turns; stopped/crashed traffic is never replayed automatically.

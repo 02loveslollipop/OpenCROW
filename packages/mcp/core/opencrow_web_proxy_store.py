@@ -51,7 +51,7 @@ def session_dir(session_id):
 
 def safe_url(url):
     parsed = urlsplit(url)
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode([(key, "[redacted]") for key, _ in parse_qsl(parsed.query, keep_blank_values=True)]), ""))
+    return urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, urlencode([(key, "[redacted]") for key, _ in parse_qsl(parsed.query, keep_blank_values=True)]), ""))
 
 
 def safe_headers(headers):
@@ -127,6 +127,7 @@ def config_for(args):
 class Capture:
     def __init__(self, limit):
         self.limit, self.size, self.data, self.digest = limit, 0, bytearray(), hashlib.sha256()
+        self.trailers = []
 
     def feed(self, data):
         self.size += len(data)
@@ -134,7 +135,7 @@ class Capture:
         self.data.extend(data[:max(0, self.limit - len(self.data))])
 
     def summary(self):
-        return {"size": self.size, "captured_size": len(self.data), "truncated": self.size > len(self.data), "sha256": self.digest.hexdigest()}
+        return {"size": self.size, "captured_size": len(self.data), "truncated": self.size > len(self.data), "sha256": self.digest.hexdigest(), "trailers_present": bool(self.trailers)}
 
 
 class Store:
@@ -145,8 +146,12 @@ class Store:
         self.db.execute("CREATE TABLE IF NOT EXISTS flows(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE,created REAL,state TEXT,data TEXT,bytes INTEGER)")
         self.db.commit()
         os.chmod(path / "history.sqlite", 0o600)
+        self.prune()
 
     def recover(self):
+        known = {row[0] for row in self.db.execute("SELECT id FROM flows")}
+        for directory in (self.path / "raw").iterdir():
+            if directory.name not in known: shutil.rmtree(directory, ignore_errors=True)
         for row in self.db.execute("SELECT data FROM flows WHERE state IN ('receiving','paused','forwarding','queued')").fetchall():
             flow = json.loads(row[0]); flow.update(state="interrupted", error="Proxy process restarted; request was not replayed", finished=time.time())
             self.save(flow)

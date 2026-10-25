@@ -6,6 +6,7 @@ import base64
 import fcntl
 import hashlib
 import importlib.util
+import importlib.metadata
 import json
 import os
 from pathlib import Path
@@ -43,7 +44,12 @@ def rpc(session_id, method, params=None, timeout=10):
 
 
 def dependencies():
-    return [{"dependency": name, "available": importlib.util.find_spec(name) is not None} for name in ("h11", "cryptography")]
+    result = [{"dependency": "python>=3.12", "available": sys.version_info >= (3, 12)}]
+    for name, expected in (("h11", "0.16.0"), ("cryptography", "50.0.2")):
+        try: version = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError: version = None
+        result.append({"dependency": name, "available": version == expected and importlib.util.find_spec(name) is not None, "version": version, "required": expected})
+    return result
 
 
 def load_config(path):
@@ -59,7 +65,7 @@ def status(session_id):
 
 def start(arguments):
     missing = [item["dependency"] for item in dependencies() if not item["available"]]
-    if missing: raise ProxyError("Missing proxy modules: " + ", ".join(missing) + "; install packages/mcp/requirements-web-proxy.txt")
+    if missing: raise ProxyError("Proxy runtime requirements unavailable: " + ", ".join(missing) + "; use Python 3.12+ and install packages/mcp/requirements-web-proxy.txt")
     identity = arguments.get("session_id")
     if identity:
         if set(arguments) != {"session_id"}: raise ProxyError("Restart accepts only session_id; existing scope remains unchanged")
@@ -202,7 +208,8 @@ class Controller:
             url = f"http://{token}:route@127.0.0.1:{self.engine.port}"
             from opencrow_web_proxy_store import PROVIDER_HOSTS
             env = {key: url for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")}
-            env.update(NO_PROXY=",".join((*PROVIDER_HOSTS, *self.config["provider_hosts"])), no_proxy=",".join((*PROVIDER_HOSTS, *self.config["provider_hosts"])), ALL_PROXY="", all_proxy="")
+            bypass = "" if self.config["capture_provider_traffic"] else ",".join((*PROVIDER_HOSTS, *self.config["provider_hosts"]))
+            env.update(NO_PROXY=bypass, no_proxy=bypass, ALL_PROXY="", all_proxy="")
             # This bundle augments ordinary roots for this tool only.
             if self.config["tls_intercept"]:
                 bundle = self.path / "ca/tool-trust.pem"
@@ -211,8 +218,9 @@ class Controller:
             return {"environment": env}
         if method == "compare":
             a, b = self.store.get(p.get("request_id")), self.store.get(p.get("other_request_id"))
+            hashes = [flow.get("response_body", {}).get("sha256") for flow in (a, b)]
             return {"request_id": a["id"], "other_request_id": b["id"], "status": [a.get("status"), b.get("status")],
-                    "body_equal": a.get("response_body", {}).get("sha256") == b.get("response_body", {}).get("sha256"),
+                    "body_equal": hashes[0] == hashes[1] if all(hashes) else None,
                     "size": [a.get("response_body", {}).get("size"), b.get("response_body", {}).get("size")]}
         if method == "export": return self.export(p)
         raise ProxyError("Unknown proxy operation")
@@ -222,6 +230,8 @@ class Controller:
         fmt = p.get("format", "jsonl")
         if fmt not in {"har", "jsonl"}: raise ProxyError("Export format must be har or jsonl")
         output = Path(self.config["workspace"]) / ".opencrow" / "proxy" / self.path.name
+        try: output.resolve().relative_to(Path(self.config["workspace"]).resolve())
+        except ValueError as exc: raise ProxyError("Export directory escapes the session workspace") from exc
         output.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = output / (uuid.uuid4().hex + "." + fmt)
         if fmt == "har":
@@ -263,10 +273,11 @@ async def daemon(identity):
         async def control(reader, writer):
             task = asyncio.current_task(); clients.add(task)
             try:
+                if len(clients) > 64: raise ProxyError("Proxy control capacity exceeded")
                 line = await asyncio.wait_for(reader.readline(), 5)
                 request = json.loads(line)
                 if not isinstance(request, dict) or not isinstance(request.get("params", {}), dict): raise ProxyError("Invalid control request")
-                result = await controller.handle(request.get("method"), request.get("params", {}))
+                result = await asyncio.wait_for(controller.handle(request.get("method"), request.get("params", {})), 8)
                 payload = {"result": result}
             except Exception as exc:
                 payload = {"error": str(exc) if isinstance(exc, ProxyError) else "Proxy operation failed; invalid input or runtime error"}
@@ -298,17 +309,29 @@ async def daemon(identity):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="operation", required=True)
+    sub.add_parser("verify", help="Report pinned runtime dependency availability without starting a listener")
+    sub.add_parser("stop-all", help="Stop owned sessions in this user's configured proxy state root")
     for operation in ("daemon", "status", "stop", "delete", "env"):
         command = sub.add_parser(operation); command.add_argument("session_id")
         if operation == "env": command.add_argument("command", nargs=argparse.REMAINDER)
     command = sub.add_parser("start"); command.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
     try:
+        if args.operation == "verify": print(json.dumps(dependencies())); return 0
         if args.operation == "daemon": os.umask(0o077); asyncio.run(daemon(args.session_id)); return 0
+        if args.operation == "stop-all":
+            stopped = []
+            for path in state_root().iterdir():
+                if path.is_dir() and (path / "config.json").is_file():
+                    stop(path.name); stopped.append(path.name)
+            print(json.dumps({"stopped": stopped})); return 0
         if args.operation == "env":
             command = args.command[1:] if args.command and args.command[0] == "--" else args.command
             if not command: raise ProxyError("env requires -- COMMAND [ARGS...]; environment secrets are never printed")
-            os.execvpe(command[0], command, {**os.environ, **environment(args.session_id)})
+            if os.environ.get("OPENCROW_WEB_PROXY_SESSION") == args.session_id and os.environ.get("OPENCROW_WEB_PROXY_TOOL_ENV"):
+                tool_env = json.loads(Path(os.environ["OPENCROW_WEB_PROXY_TOOL_ENV"]).read_text())
+            else: tool_env = environment(args.session_id)
+            os.execvpe(command[0], command, {**os.environ, **tool_env})
         result = start(json.loads(args.config.read_text())) if args.operation == "start" else {"status": status, "stop": stop, "delete": delete}[args.operation](args.session_id)
         print(json.dumps(result)); return 0
     except Exception as exc:

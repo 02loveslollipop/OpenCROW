@@ -4,6 +4,8 @@ Use this reference when the task is web discovery, fuzzing, or light exploitatio
 
 ## Native tools
 
+- `opencrow-web-proxy-mcp`: OpenCROW-owned HTTP/1.1 observe/pause/edit/replay and sanitized history. HTTPS is opaque by default; per-session MITM needs explicit trust. Use `opencrow-web-proxy env SESSION_ID -- COMMAND` for tool routing, never for model/provider processes. Raw evidence and CA keys stay in private state.
+
 - `ffuf`: fast content, parameter, and vhost fuzzing.
 - `gobuster`: directory, DNS, and virtual host brute forcing.
 - `dirb`: classic web content brute forcer.
