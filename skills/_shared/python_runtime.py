@@ -78,3 +78,14 @@ def sage_command() -> list[str]:
     if sage:
         return [sage]
     raise RuntimeError("SageMath is unavailable (OPENCROW_SAGE, sage Conda env, and PATH were checked).")
+
+
+def system_tools_available(tools: list[str], preferred_env: str = "ctf") -> dict[str, bool]:
+    """Probe both the chosen interpreter's console scripts and the host PATH."""
+    code = (
+        "import json, os, pathlib, shutil, sys\n"
+        "os.environ['PATH'] = str(pathlib.Path(sys.executable).parent) + os.pathsep + os.environ.get('PATH', '')\n"
+        f"print(json.dumps({{name: shutil.which(name) is not None for name in {tools!r}}}))\n"
+    )
+    result = subprocess.run([*python_command(preferred_env), "-c", code], check=True, capture_output=True, text=True, timeout=30)
+    return json.loads(result.stdout)

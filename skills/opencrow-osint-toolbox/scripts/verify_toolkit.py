@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
-from python_runtime import python_command  # noqa: E402
+from python_runtime import python_command, system_tools_available  # noqa: E402
 
 
 PYTHON_MODULES = [
@@ -58,7 +57,7 @@ def main() -> int:
     try:
         payload = {
             "python_modules": check_python_modules(args.env),
-            "system_tools": {tool: shutil.which(tool) is not None for tool in SYSTEM_TOOLS},
+            "system_tools": system_tools_available(SYSTEM_TOOLS, args.env),
         }
     except subprocess.CalledProcessError as exc:
         print(exc.stderr or str(exc), file=sys.stderr)

@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import json
-import shutil
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+from python_runtime import system_tools_available
 
 
 SYSTEM_TOOLS = [
@@ -26,7 +30,7 @@ SYSTEM_TOOLS = [
 
 def main() -> int:
     payload = {
-        "system_tools": {tool: shutil.which(tool) is not None for tool in SYSTEM_TOOLS}
+        "system_tools": system_tools_available(SYSTEM_TOOLS)
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0

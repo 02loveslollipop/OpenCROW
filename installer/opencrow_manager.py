@@ -419,6 +419,7 @@ class StateEngine:
             f'if [ ! -x "$OPENCROW_RUNTIME_PYTHON" ]; then OPENCROW_RUNTIME_PYTHON={shlex_quote(str(ctf))}; fi\n'
             f'if [ ! -x "$OPENCROW_RUNTIME_PYTHON" ]; then OPENCROW_RUNTIME_PYTHON={shlex_quote(str(helper))}; fi\n'
             'if [ ! -x "$OPENCROW_RUNTIME_PYTHON" ]; then OPENCROW_RUNTIME_PYTHON=$(command -v python3 || command -v python); fi\n'
+            'export PATH="${OPENCROW_RUNTIME_PYTHON%/*}:$PATH"\n'
         )
 
     def _write_launcher(self, name: str, module_or_path: str, managed: list[str]) -> None:

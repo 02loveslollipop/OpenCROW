@@ -15,6 +15,14 @@ Interpreter resolution order is:
 
 Never assume domain modules or an MCP launcher exists in a skills-only installation; probe it.
 
+## Provisioned and manual tools
+
+The selected OSINT environment installs the `sherlock-project` distribution (the `sherlock` command), `waybackpy` and `shodan`. The crypto environment installs `fpylll` and `cysignals`; utility installs Python `yq` alongside the OS `jq` package. OS packages remain best-effort across distributions, and Python installation failures appear in the installer receipt's unresolved entries. A Shodan API key is still needed for authenticated lookups.
+
+`zsteg`, `pwndbg` and `pwninit` are explicitly manual tools. They require their upstream Ruby gem, Pwndbg release/setup, or Cargo/release installation respectively. OpenCROW does not download or execute those separate installers. Probe availability before using them. The installer records this classification and explanations in `installer/manifests/components.json`.
+
+Toolbox skill descriptions are checked against the selected toolbox's Python/system manifests and manual-tool list in CI. Command aliases such as `sherlock` → `sherlock-project` are included in that check. See the [Sherlock installation instructions](https://github.com/sherlock-project/sherlockproject.xyz/blob/master/installation.mdx) and [fpylll requirements](https://fpylll.readthedocs.io/en/master/index.html) for upstream package details.
+
 ## Standalone execution workers
 
 Full installations include `opencrow-worker-mcp` and the [agent-worker skill](../../skills/agent-worker/SKILL.md). Add this launcher to the MCP configuration of the orchestrating client, just as for other domain servers. It supports Antigravity (`agy`), OpenCode (`opencode`), and Codex (`codex`) without requiring Constellation or the Codex SDK. The older `opencrow-agy-mcp` interface remains available.
