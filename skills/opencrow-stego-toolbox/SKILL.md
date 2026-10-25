@@ -7,6 +7,8 @@ description: Use the OpenCROW steganography stack for hidden-data triage and ext
 
 ## Runtime preflight
 
+`zsteg` requires a separate Ruby gem installation; the full installer classifies it as a manual tool. Probe it before PNG/BMP triage.
+
 Probe required commands with `command -v` and Python modules with `importlib.util.find_spec` before use. Prefer a PATH-resolved OpenCROW MCP helper or the `ctf`/`sage` environment when available, then the managed helper or system Python. If a capability is missing, stop that path safely and report the exact missing command or module.
 
 Use this skill for image or audio artifacts that may hide data in metadata, bit planes, or container structures. It covers `steghide` for embedded payload extraction and `zsteg` for PNG/BMP stego triage.

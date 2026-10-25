@@ -2,7 +2,8 @@
   "schema_version": 2,
   "headless_toolboxes": ["utility", "network", "reversing", "pwn", "web", "forensics", "stego", "crypto", "osint"],
   "optional_toolboxes": ["sagemath"],
-  "manual_tools": ["burpsuite", "zaproxy", "autopsy", "openstego", "steghsolve", "ghidra-gui"],
+  "manual_tools": ["burpsuite", "zaproxy", "autopsy", "openstego", "steghsolve", "ghidra-gui", "zsteg", "pwndbg", "pwninit"],
+  "manual_tool_notes": {"zsteg": "Install the Ruby gem separately; not provisioned by the cross-distro installer.", "pwndbg": "Install a pinned upstream Pwndbg release separately; not provisioned by OpenCROW.", "pwninit": "Install pwninit separately using its upstream Cargo/release instructions."},
   "full_components": ["initializer", "domain-mcp", "constellation", "miniconda", "ctf-environment", "optional-sage-environment", "os-toolboxes"],
   "skills_components": ["skills", "provider-hooks", "lifecycle-mcp", "helper-python", "management-cli"]
 }

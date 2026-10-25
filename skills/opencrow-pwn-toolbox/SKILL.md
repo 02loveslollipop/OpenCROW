@@ -7,6 +7,8 @@ description: Use the best available portable Python runtime and installed exploi
 
 ## Runtime preflight
 
+`pwndbg` and `pwninit` require a separate upstream installation; the full installer classifies them as manual tools. Probe them before choosing those paths.
+
 Probe required commands with `command -v` and Python modules with `importlib.util.find_spec` before use. Prefer a PATH-resolved OpenCROW MCP helper or the `ctf`/`sage` environment when available, then the managed helper or system Python. If a capability is missing, stop that path safely and report the exact missing command or module.
 
 Prefer the `opencrow-pwn-mcp` server for typed ELF triage, cyclic work, patching, and one-gadget search. Fall back to the direct scripts only when you need to debug the underlying `ctf`-environment execution path.
