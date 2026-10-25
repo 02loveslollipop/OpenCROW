@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared helpers for OpenCROW MCP servers that rely on the ctf conda environment."""
+"""Shared helpers using an override, managed env, Conda, helper or system Python."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ def python_command(env_name: str = "ctf") -> list[str]:
         command = shlex.split(override)
         if command and (Path(command[0]).is_file() or shutil.which(command[0])):
             return command
+        raise RuntimeError(f"OPENCROW_PYTHON is not executable: {override}")
     managed_python = _managed_env(env_name) / "bin" / "python"
     if managed_python.is_file() and os.access(managed_python, os.X_OK):
         return [str(managed_python)]

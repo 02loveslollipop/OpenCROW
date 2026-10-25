@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,12 @@ def backend_script_path(script_name: str) -> Path:
     direct_path = SCRIPT_DIR / script_name
     if direct_path.exists():
         return direct_path
+    skill_name = {"nc_async_session.py": "netcat-async", "ssh_async_session.py": "ssh-async", "minecraft_async.py": "minecraft-async"}.get(script_name)
+    if skill_name:
+        skills_root = Path(os.environ.get("OPENCROW_SKILLS_ROOT", str(SCRIPT_DIR.parents[1] / "skills"))).expanduser()
+        vendored = skills_root / skill_name / "scripts" / script_name
+        if vendored.is_file():
+            return vendored
     fallback_path = BACKEND_FALLBACKS.get(script_name)
     if fallback_path is not None and fallback_path.exists():
         return fallback_path

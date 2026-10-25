@@ -754,33 +754,17 @@ def command_exists(name: str) -> bool:
 
 def conda_module_available(env_name: str, module_name: str) -> bool:
     code = f"import importlib.util; raise SystemExit(0 if importlib.util.find_spec('{module_name}') else 1)"
-    override = os.environ.get("OPENCROW_PYTHON", "").strip()
-    helper = Path(os.environ.get("OPENCROW_HELPER_PYTHON", "")).expanduser() if os.environ.get("OPENCROW_HELPER_PYTHON") else None
-    if override:
-        import shlex
+    from opencrow_ctf_mcp_common import python_command
 
-        command = [*shlex.split(override), "-c", code]
-    else:
-        data_home = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-        managed_python = data_home / "opencrow" / "envs" / env_name / "bin" / "python"
-        managed_conda = data_home / "opencrow" / "miniconda" / "bin" / "conda"
-        conda = shutil.which("conda") or (str(managed_conda) if managed_conda.is_file() else None)
-        if managed_python.is_file():
-            command = [str(managed_python), "-c", code]
-        elif conda:
-            command = [conda, "run", "-n", env_name, "python", "-c", code]
-        elif helper is not None and helper.is_file():
-            command = [str(helper), "-c", code]
-        else:
-            command = [sys.executable, "-c", code]
     try:
         result = subprocess.run(
-            command,
+            [*python_command(env_name), "-c", code],
             capture_output=True,
             text=True,
             check=False,
+            timeout=30,
         )
-    except (FileNotFoundError, ValueError):
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0
 

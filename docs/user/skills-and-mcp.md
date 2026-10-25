@@ -15,6 +15,10 @@ Interpreter resolution order is:
 
 Never assume domain modules or an MCP launcher exists in a skills-only installation; probe it.
 
+## Opt-in toolbox MCP for minimal deployments
+
+Skills-only consumers can vendor the [standalone MCP package](../../packages/mcp/README.md), generate per-server agent configuration, and use the toolbox servers without installing Constellation or lifecycle packages. Stable releases provide `opencrow-mcp.zip` plus paired skills/MCP split commit IDs in `release-manifest.json`. Use both component revisions from the same release. This does not add toolbox servers to the default skills-only installer configuration.
+
 ## Standalone execution workers
 
 Full installations include `opencrow-worker-mcp` and the [agent-worker skill](../../skills/agent-worker/SKILL.md). Add this launcher to the MCP configuration of the orchestrating client, just as for other domain servers. It supports Antigravity (`agy`), OpenCode (`opencode`), and Codex (`codex`) without requiring Constellation or the Codex SDK. The older `opencrow-agy-mcp` interface remains available.
