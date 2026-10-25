@@ -71,7 +71,11 @@ class BaseHandler(tornado.web.RequestHandler):
         if not expected:
             return False
         supplied = self.request.headers.get("X-Constellation-UI-Auth", "").strip()
-        return bool(supplied) and isinstance(supplied, str) and isinstance(expected, str) and secrets.compare_digest(supplied, expected)
+        if not supplied:
+            return False
+        if not isinstance(expected, str) or not isinstance(supplied, str):
+            return False
+        return secrets.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
 
     def _normalized_client_kind(self, raw_kind: object) -> str:
         requested = str(raw_kind or "agent").strip().lower() or "agent"

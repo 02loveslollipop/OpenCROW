@@ -112,10 +112,10 @@ class ConstellationStorage:
         self.agent_events.create_index([("runtime_id", ASCENDING), ("created_at", DESCENDING)])
 
     def validate_system_token(self, token: str) -> bool:
-        if not token:
+        if not token or not isinstance(token, str):
             return False
         for system_token in self.settings.system_tokens:
-            if isinstance(token, str) and isinstance(system_token, str) and secrets.compare_digest(token, system_token):
+            if isinstance(system_token, str) and secrets.compare_digest(token.encode("utf-8"), system_token.encode("utf-8")):
                 return True
         return False
 
@@ -1140,7 +1140,7 @@ class ConstellationStorage:
 
         expected = current.get("resume_secret_digest")
         digested = digest_secret(secret)
-        if not (isinstance(expected, str) and isinstance(digested, str) and secrets.compare_digest(expected, digested)):
+        if not (isinstance(expected, str) and isinstance(digested, str) and secrets.compare_digest(expected.encode("utf-8"), digested.encode("utf-8"))):
             raise PermissionError("Invalid resume secret for this topic identity.")
 
         updated = self.members.find_one_and_update(

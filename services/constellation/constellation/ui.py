@@ -71,7 +71,12 @@ def create_app(ui_settings: UISettings | None = None) -> Flask:
         if request.method == "POST":
             session_token = session.get("csrf_token")
             supplied = request.form.get("csrf_token", "")
-            if not session_token or not supplied or not secrets_module.compare_digest(str(session_token), supplied):
+            if not session_token or not supplied:
+                return Response("CSRF token missing or invalid.", status=403)
+            # Encode strings as utf-8 to prevent TypeError DoS with non-ASCII characters
+            expected_bytes = str(session_token).encode("utf-8")
+            supplied_bytes = str(supplied).encode("utf-8")
+            if not secrets_module.compare_digest(expected_bytes, supplied_bytes):
                 return Response("CSRF token missing or invalid.", status=403)
         return None
 
