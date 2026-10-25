@@ -336,6 +336,8 @@ def build_direct_command(
     server: str | None,
     world: str | None,
 ) -> tuple[list[str], dict[str, Any]]:
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,16}", username):
+        raise McError("Offline username must contain 1-16 ASCII letters, digits, or underscores.")
     version_meta = load_version_meta(game_dir, version_id)
     paths = session_paths(session)
     features = {
@@ -383,7 +385,29 @@ def build_direct_command(
     }
 
     jvm_args = flatten_argument_values(version_meta.get("arguments", {}).get("jvm", []), vars_map, features)
-    game_args = flatten_argument_values(version_meta.get("arguments", {}).get("game", []), vars_map, features)
+    raw_game_args = version_meta.get("arguments", {}).get("game")
+    if raw_game_args is None:
+        raw_game_args = shlex.split(version_meta.get("minecraftArguments", ""))
+    game_args = flatten_argument_values(raw_game_args, vars_map, features)
+    # Inherited/custom manifests can contain literal or repeated profile flags.
+    # Remove every occurrence, then supply exactly one offline profile.
+    identity = {
+        "--username": username, "--uuid": offline_uuid(username),
+        "--accessToken": "0", "--userType": "legacy",
+        "--userProperties": "{}", "--gameDir": str(game_dir),
+    }
+    cleaned = []
+    index = 0
+    while index < len(game_args):
+        option = game_args[index].split("=", 1)[0]
+        if option in identity:
+            index += 1 if "=" in game_args[index] else 2
+        else:
+            cleaned.append(game_args[index])
+            index += 1
+    game_args = cleaned + [part for pair in identity.items() for part in pair]
+    if not any(arg in {"-cp", "-classpath", "--class-path"} for arg in jvm_args):
+        jvm_args.extend(["-Djava.library.path=" + str(natives_dir), "-cp", vars_map["classpath"]])
 
     logging_cfg = version_meta.get("logging", {}).get("client", {})
     logging_file = logging_cfg.get("file", {}).get("id")
@@ -448,6 +472,21 @@ def start_session(name: str, cmd: list[str], meta: dict[str, Any], dry_run: bool
 
     paths["pid"].write_text(f"{proc.pid}\n", encoding=ENCODING)
     save_meta(name, meta | {"pid": proc.pid, "session": name})
+    if meta.get("backend") == "direct":
+        # This fresh stdout log belongs to our child, unlike shared latest.log.
+        observed = wait_for_identity(paths["launcher_log"], 30.0, process=proc)
+        if observed != meta["username"]:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait(timeout=5)
+            paths["pid"].unlink(missing_ok=True)
+            save_meta(name, meta | {"session": name, "identity_verified": False, "observed_username": observed})
+            raise McError(f"Offline identity verification failed: expected {meta['username']!r}, observed {observed!r}. See {paths['launcher_log']}")
+        save_meta(name, meta | {"pid": proc.pid, "session": name, "identity_verified": True, "observed_username": observed})
     print(f"started session '{name}' pid={proc.pid}")
     return 0
 
@@ -830,7 +869,7 @@ def username_from_log(text: str) -> str | None:
     return names[-1] if names else None
 
 
-def wait_for_identity(latest: Path, timeout: float, poll: float = 0.5) -> str | None:
+def wait_for_identity(latest: Path, timeout: float, poll: float = 0.5, *, process: subprocess.Popen | None = None) -> str | None:
     """Poll latest.log for the `Setting user:` line.
 
     Reads only appended bytes (the log can grow to megabytes on long
@@ -860,15 +899,16 @@ def wait_for_identity(latest: Path, timeout: float, poll: float = 0.5) -> str | 
                 if observed:
                     return observed
         remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if remaining <= 0 or (process is not None and process.poll() is not None):
             return None
         time.sleep(min(poll, remaining))
 
 
 def cmd_verify_identity(args: argparse.Namespace) -> int:
-    game_dir = detect_game_dir(args.game_dir)
-    expected = (args.username or load_meta(args.session).get("username") or "Player").strip()
-    latest = game_dir / "logs" / "latest.log"
+    meta = load_meta(args.session)
+    game_dir = detect_game_dir(args.game_dir or meta.get("game_dir"))
+    expected = (args.username or meta.get("username") or "Player").strip()
+    latest = session_paths(args.session)["launcher_log"] if meta.get("backend") == "direct" else game_dir / "logs" / "latest.log"
     observed = wait_for_identity(latest, args.timeout)
     if observed is None:
         raise McError(
