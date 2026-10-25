@@ -15,6 +15,8 @@ from gridfs import GridFSBucket
 from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, PyMongoError
+from bson.errors import InvalidId
+from gridfs.errors import NoFile
 from pymongo import ReturnDocument
 
 from .config import BackendSettings
@@ -112,10 +114,10 @@ class ConstellationStorage:
         self.agent_events.create_index([("runtime_id", ASCENDING), ("created_at", DESCENDING)])
 
     def validate_system_token(self, token: str) -> bool:
-        if not token:
+        if not token or not isinstance(token, str):
             return False
         for system_token in self.settings.system_tokens:
-            if secrets.compare_digest(token, system_token):
+            if isinstance(system_token, str) and secrets.compare_digest(token.encode("utf-8"), system_token.encode("utf-8")):
                 return True
         return False
 
@@ -358,12 +360,15 @@ class ConstellationStorage:
         ]
 
     def download_challenge_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
-        data = grid_out.read()
-        metadata = dict(grid_out.metadata or {})
-        metadata["filename"] = grid_out.filename
-        metadata["length"] = grid_out.length
-        return data, metadata
+        try:
+            grid_out = self.challenge_bucket.open_download_stream(ObjectId(file_id))
+            data = grid_out.read()
+            metadata = dict(grid_out.metadata or {})
+            metadata["filename"] = grid_out.filename
+            metadata["length"] = grid_out.length
+            return data, metadata
+        except (InvalidId, NoFile) as exc:
+            raise KeyError(file_id) from exc
 
     def create_agent(
         self,
@@ -692,12 +697,15 @@ class ConstellationStorage:
         ]
 
     def download_agent_artifact(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
-        data = grid_out.read()
-        metadata = dict(grid_out.metadata or {})
-        metadata["filename"] = grid_out.filename
-        metadata["length"] = grid_out.length
-        return data, metadata
+        try:
+            grid_out = self.agent_artifact_bucket.open_download_stream(ObjectId(file_id))
+            data = grid_out.read()
+            metadata = dict(grid_out.metadata or {})
+            metadata["filename"] = grid_out.filename
+            metadata["length"] = grid_out.length
+            return data, metadata
+        except (InvalidId, NoFile) as exc:
+            raise KeyError(file_id) from exc
 
     def _public_topic(
         self,
@@ -1139,7 +1147,8 @@ class ConstellationStorage:
             )
 
         expected = current.get("resume_secret_digest")
-        if not isinstance(expected, str) or not secrets.compare_digest(expected, digest_secret(secret)):
+        digested = digest_secret(secret)
+        if not (isinstance(expected, str) and isinstance(digested, str) and secrets.compare_digest(expected.encode("utf-8"), digested.encode("utf-8"))):
             raise PermissionError("Invalid resume secret for this topic identity.")
 
         updated = self.members.find_one_and_update(
@@ -1430,12 +1439,15 @@ class ConstellationStorage:
         return self._public_final_artifact(doc)
 
     def download_file(self, file_id: str) -> tuple[bytes, dict[str, Any]]:
-        grid_out = self.bucket.open_download_stream(ObjectId(file_id))
-        data = grid_out.read()
-        metadata = dict(grid_out.metadata or {})
-        metadata["filename"] = grid_out.filename
-        metadata["length"] = grid_out.length
-        return data, metadata
+        try:
+            grid_out = self.bucket.open_download_stream(ObjectId(file_id))
+            data = grid_out.read()
+            metadata = dict(grid_out.metadata or {})
+            metadata["filename"] = grid_out.filename
+            metadata["length"] = grid_out.length
+            return data, metadata
+        except (InvalidId, NoFile) as exc:
+            raise KeyError(file_id) from exc
 
     def list_broker_events(self, topic: str, *, after_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         bounded_limit = max(1, min(limit, 500))
