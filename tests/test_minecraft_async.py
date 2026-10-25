@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
 import sys
 import threading
 import time
@@ -133,3 +135,58 @@ def test_build_direct_command_propagates_username(tmp_path: Path):
     assert cmd[cmd.index("--username") + 1] == "codextest"
     assert cmd[cmd.index("--uuid") + 1] == mc.offline_uuid("codextest")
     assert meta["username"] == "codextest"
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_direct_command_overrides_literal_and_duplicate_identity(tmp_path, monkeypatch, legacy):
+    monkeypatch.setattr(mc, "BASE_DIR", tmp_path / "sessions")
+    version = tmp_path / "versions/test"
+    version.mkdir(parents=True)
+    game = ["--username", "stored-user", "--username=other-user", "--uuid", "stored-uuid", "--accessToken=stored-token", "--userType", "msa"]
+    data = {"mainClass": "Main"}
+    if legacy:
+        data["minecraftArguments"] = " ".join(game)
+    else:
+        data["arguments"] = {"game": game, "jvm": []}
+    (version / "test.json").write_text(json.dumps(data))
+    (version / "test.jar").write_bytes(b"fake")
+    cmd, _ = mc.build_direct_command(tmp_path, "test", "codextest", "test", None, None, "/usr/bin/true", 512, 1024, None, None)
+    for option, value in [("--username", "codextest"), ("--uuid", mc.offline_uuid("codextest")), ("--accessToken", "0"), ("--userType", "legacy")]:
+        assert cmd.count(option) == 1
+        assert cmd[cmd.index(option) + 1] == value
+    assert not any("stored" in arg or "other-user" in arg for arg in cmd)
+
+
+@pytest.mark.parametrize("username", ["", "bad name", "x" * 17, "雪"])
+def test_direct_command_rejects_invalid_offline_username(tmp_path, username):
+    with pytest.raises(mc.McError, match="Offline username"):
+        mc.build_direct_command(tmp_path, "unused", username, "test", None, None, None, 512, 1024, None, None)
+
+
+def test_launch_verifies_child_log_without_reusing_latest_log(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc, "BASE_DIR", tmp_path / "sessions")
+    latest = tmp_path / "logs/latest.log"
+    latest.parent.mkdir()
+    latest.write_text("Setting user: stored-user\n")
+    meta = {"backend": "direct", "username": "codextest", "game_dir": str(tmp_path)}
+    command = [sys.executable, "-c", "import time; print('Setting user: codextest', flush=True); time.sleep(30)"]
+    try:
+        assert mc.start_session("test", command, meta, False) == 0
+        assert mc.load_meta("test")["identity_verified"] is True
+        assert latest.read_text() == "Setting user: stored-user\n"
+        assert mc.cmd_verify_identity(_namespace(session="test")) == 0
+    finally:
+        pid = mc.read_pid("test")
+        if pid:
+            os.killpg(pid, signal.SIGTERM)
+            os.waitpid(pid, 0)
+
+
+def test_launch_fails_and_stops_child_with_wrong_identity(tmp_path, monkeypatch):
+    monkeypatch.setattr(mc, "BASE_DIR", tmp_path / "sessions")
+    meta = {"backend": "direct", "username": "codextest"}
+    command = [sys.executable, "-c", "import time; print('Setting user: wrong', flush=True); time.sleep(30)"]
+    with pytest.raises(mc.McError, match="Offline identity verification failed"):
+        mc.start_session("test", command, meta, False)
+    assert mc.read_pid("test") is None
+    assert mc.load_meta("test")["identity_verified"] is False

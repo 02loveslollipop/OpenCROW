@@ -24,6 +24,9 @@ Use this by default.
 - Supports launch-time multiplayer quick play via `join-server`
 - Supports launch-time singleplayer quick play via `join-world`
 - Keeps managed session metadata under `/tmp/opencrow-minecraft-async/<session>/`
+- Forces exactly one requested offline username, matching offline UUID and offline token, even if a custom/inherited version manifest contains literal or repeated identity flags. Legacy `minecraftArguments` manifests are supported too.
+- Waits up to 30 seconds for the newly launched child's `Setting user:` line before reporting success. A missing or mismatched identity stops that child and fails the launch. This checks startup identity, not successful world/server entry.
+- `verify-identity` uses that session's launcher log and recorded game directory for direct sessions, so another client's `latest.log` cannot certify the managed session. Official launcher account/session files are not modified.
 
 ### `cmd-launcher`
 
