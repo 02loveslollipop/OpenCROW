@@ -143,6 +143,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--version", default="2.1.2")
     parser.add_argument("--release-tag")
     parser.add_argument("--source-sha")
+    parser.add_argument("--component-revisions", type=Path)
     parser.add_argument("--portable-python-x86", type=Path)
     parser.add_argument("--portable-python-arm64", type=Path)
     parser.add_argument("--allow-development-placeholders", action="store_true")
@@ -154,6 +155,14 @@ def main() -> int:
     args = parse_args()
     tag = args.release_tag or args.version
     source_sha = args.source_sha or git_value("rev-parse", "HEAD", fallback="unknown")
+    components = None
+    if args.component_revisions:
+        revisions = json.loads(args.component_revisions.read_text(encoding="utf-8"))
+        if revisions.get("source_commit") != source_sha or set(revisions.get("components", {})) != {"skills", "mcp"}:
+            raise ValueError("Component revisions must pin skills and MCP from the release source commit")
+        components = revisions["components"]
+    if args.require_release_ready and components is None:
+        raise ValueError("Stable releases require paired skills and MCP component revisions")
     if DIST.exists():
         shutil.rmtree(DIST)
     if PAGES.exists():
@@ -165,6 +174,11 @@ def main() -> int:
     full = ["README.md", "LICENSE", "install.sh", "skills.sh", "packages", "skills", "integrations", "installer", "services/constellation", "docs"]
     stage_bundle(full, DIST / "opencrow-full.zip", version=args.version, mode="full", tag=tag, sha=source_sha)
     stage_bundle(common, DIST / "opencrow-skills.zip", version=args.version, mode="skills", tag=tag, sha=source_sha)
+    with tempfile.TemporaryDirectory(prefix="opencrow-mcp-") as temporary:
+        stage = Path(temporary) / "mcp"
+        copy_entry(ROOT / "packages/mcp", stage)
+        bundle_manifest(stage, version=args.version, mode="mcp", tag=tag, sha=source_sha)
+        zip_tree(stage, DIST / "opencrow-mcp.zip")
     stage_bundle(
         ["README.md", "LICENSE", "services/constellation", "packages/lifecycle"],
         DIST / "opencrow-constellation.zip",
@@ -215,6 +229,7 @@ def main() -> int:
         "assets": assets,
         "supported": json.loads((ROOT / "installer/manifests/release.json").read_text(encoding="utf-8"))["supported"],
         "providers": json.loads((ROOT / "integrations/manifest.json").read_text(encoding="utf-8"))["providers"],
+        "components": components,
     }
     manifest_path = DIST / "release-manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")

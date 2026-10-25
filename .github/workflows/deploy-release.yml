@@ -67,10 +67,12 @@ jobs:
 
       - name: Build verified release assets and Wiki snapshot
         run: |
+          python scripts/split_components.py build --source "$GITHUB_SHA" --output "$RUNNER_TEMP/component-revisions.json"
           python scripts/build_releases.py \
             --version "$GITHUB_REF_NAME" \
             --release-tag "$GITHUB_REF_NAME" \
             --source-sha "$GITHUB_SHA" \
+            --component-revisions "$RUNNER_TEMP/component-revisions.json" \
             --portable-python-x86 /tmp/python-x86.tar.gz \
             --portable-python-arm64 /tmp/python-arm64.tar.gz \
             --require-release-ready
@@ -96,6 +98,9 @@ jobs:
             ${{ runner.temp }}/previous-stable/baseline.json
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Publish paired skills and MCP vendoring branches
+        run: python scripts/split_components.py publish --manifest "$RUNNER_TEMP/component-revisions.json"
 
       - name: Create draft GitHub Release and upload assets
         shell: bash

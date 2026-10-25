@@ -25,3 +25,9 @@ The expensive suite is deliberately absent from PR and scheduled workflows. Norm
 python scripts/release_installation.py fetch-previous "$CANDIDATE_TAG" /tmp/opencrow-previous
 bash scripts/test_release_installation.sh dist/opencrow-full.zip /tmp/opencrow-previous/opencrow-full.zip /tmp/opencrow-release-reports
 ```
+
+## Paired vendoring components
+
+The stable-tag transaction computes `git subtree split` commits for `skills/` and `packages/mcp/` from the same source SHA before building assets. The resulting `components` entries in the shared release manifest record the prefixes, split commit IDs and branch names. Stable release builds require those paired revisions and reject a source SHA mismatch. `opencrow-mcp.zip` supplies the standalone MCP tree with its own file checksums.
+
+After the full installation gate passes, the workflow advances `skills-subtree/release` and `mcp-subtree/release` in one atomic, non-forced push. A diverged branch fails publication instead of replacing history. Component branches may advance before the GitHub release is published; downstream consumers must pin the component IDs from a published release manifest rather than follow either moving branch independently. Preparing code or building development assets does not publish these branches.
