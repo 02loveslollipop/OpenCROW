@@ -1,0 +1,3 @@
+# Framing and per-session certificate primitives; no external proxy application.
+h11==0.16.0
+cryptography==50.0.2
