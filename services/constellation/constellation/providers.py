@@ -240,7 +240,10 @@ class OpenCodeAdapter(ProviderAdapter):
 
     def _tool_proxy(self):
         route = getattr(self, "proxy_route", None)
-        return {"tool_environment": json.loads(Path(route["tool_environment"]).read_text())} if route else {}
+        if not route: return {}
+        environment = json.loads(Path(route["tool_environment"]).read_text())
+        environment.update(OPENCROW_WEB_PROXY_SESSION=route["session_id"], OPENCROW_WEB_PROXY_TOOL_ENV=route["tool_environment"])
+        return {"tool_environment": environment}
 
     def start_command(self, *, prompt: str, workspace: Path, model: str | None) -> list[str]:
         return opencode_sdk.turn_command(workspace=workspace, model=model or self.model)

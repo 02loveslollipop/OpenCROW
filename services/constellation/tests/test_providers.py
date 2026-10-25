@@ -401,6 +401,7 @@ def test_proxy_routing_is_tool_only_for_each_constellation_provider(tmp_path, mo
     assert codex._tool_proxy_config()["config"]["shell_environment_policy"]["set"]["http_proxy"].startswith("http://route")
     opencode = OpenCodeAdapter(); opencode.proxy_route = route
     assert opencode._tool_proxy()["tool_environment"]["http_proxy"].startswith("http://route")
+    assert opencode._tool_proxy()["tool_environment"]["OPENCROW_WEB_PROXY_SESSION"] == route["session_id"]
 
 
 def test_current_codex_sdk_accepts_proxy_tool_policy_without_model_network_calls(tmp_path):
