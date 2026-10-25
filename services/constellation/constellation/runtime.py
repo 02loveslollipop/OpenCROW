@@ -203,6 +203,10 @@ class RuntimeSocket:
     def _prompt_agent(self, command: dict[str, Any]) -> None:
         payload = command.get("payload") if isinstance(command.get("payload"), dict) else {}
         agent_id = str(command["agent_id"])
+        active = self.active_turns.get(agent_id)
+        if getattr(active, "pending_form", None):
+            active.reply(str(payload.get("body") or ""))
+            return
         challenge_id = str(command["challenge_id"])
         agent = self.client._json("GET", f"/agents/{agent_id}").get("agent", {})
         workspace_raw = str(agent.get("workspace_path") or "")
@@ -282,6 +286,8 @@ class RuntimeSocket:
                         "payload": {"provider": provider, "session_id": provider_session_id, "error": str(exc)},
                     }
                 )
+                if provider == "opencode":
+                    raise  # SDK work may already be admitted; never replay it.
                 turn = adapter.start(prompt=prompt, workspace=workspace, model=model)
                 resuming = False
         else:
@@ -313,6 +319,8 @@ class RuntimeSocket:
             try:
                 consume(turn)
             except Exception as exc:
+                if provider == "opencode":
+                    raise  # Preserve the native ID/checkpoint for explicit recovery.
                 if not resuming or not provider_session_id:
                     raise
                 failed_id = provider_session_id
@@ -360,6 +368,7 @@ class RuntimeSocket:
     def _record_resume_failure(self, workspace: Path, provider: str, session_id: str, exc: Exception) -> None:
         changelog = workspace / "CHANGELOG.md"
         existing = changelog.read_text(encoding="utf-8") if changelog.exists() else "# Changelog\n"
+        recovery = "Inspect the native session and checkpoint before an explicit resume; work was not replayed." if provider == "opencode" else "Start a replacement session and persist its native identifier."
         entry = (
             f"\n## Provider session recovery — {utc_now()}\n\n"
             f"- Status: `failed`\n"
@@ -368,7 +377,7 @@ class RuntimeSocket:
             f"- Reproducible command/input: native `{provider}` resume identifier `{session_id}`\n"
             f"- Outcome: Resume failed; restart from lifecycle files.\n"
             f"- Evidence: {type(exc).__name__}: {exc}\n"
-            f"- Next action: Start a replacement session and persist its native identifier.\n"
+            f"- Next action: {recovery}\n"
         )
         changelog.write_text(existing.rstrip() + "\n" + entry, encoding="utf-8")
 

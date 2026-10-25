@@ -29,6 +29,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          package-manager-cache: false
+      - run: npm ci --prefix packages/opencode
 
       - name: Validate stable annotated tag on release branch
         shell: bash

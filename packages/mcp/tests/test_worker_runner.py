@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 import signal
+import socketserver
+import tempfile
 import subprocess
 import sys
 import threading
@@ -29,8 +31,8 @@ if "--version" in args:
     print(provider + " test-1.0")
     raise SystemExit(0)
 case = os.environ.get("OPENCROW_FAKE_CASE", "success")
-prompt = sys.stdin.read() if provider == "codex" else next((a[len("--print="):] for a in args if a.startswith("--print=")), args[-1])
-resumed = "resume" in args or "--session" in args or "--conversation" in args
+prompt = sys.stdin.read() if provider in {"codex", "opencode"} else next((a[len("--print="):] for a in args if a.startswith("--print=")), args[-1])
+resumed = "resume" in args or "--session-id" in args or "--conversation" in args
 with open("invocations.jsonl", "a") as out:
     out.write(json.dumps({"provider": provider, "args": args, "prompt": prompt, "cwd": os.getcwd(), "resumed": resumed}) + "\n")
 def emit(value):
@@ -39,10 +41,15 @@ def report(kind, message):
     subprocess.run([sys.executable, os.environ["OPENCROW_FAKE_RUNNER"], "report", kind, message], check=True, stdout=subprocess.DEVNULL)
 if case != "missing_session":
     if provider == "codex": emit({"type": "thread.started", "thread_id": "native-codex"})
-    elif provider == "opencode": emit({"type": "step_start", "sessionID": "native-opencode"})
+    elif provider == "opencode": emit({"type": "opencrow.v2.session", "session_id": "native-opencode"})
     else: emit({"type": "system", "conversation_id": "native-agy", "model": "reported-model"})
 report("progress", "started task")
 report("alert", "review this result")
+if case == "native_form":
+    emit({"type": "opencrow.v2.question", "session_id": "native-opencode", "form": {"id": "form-fixture", "title": "Choose", "fields": [{"key": "answer", "type": "string"}]}})
+    deadline = time.monotonic() + 10
+    while not pathlib.Path("native-answer.json").exists() and time.monotonic() < deadline: time.sleep(.02)
+    assert json.loads(pathlib.Path("native-answer.json").read_text()) == {"answer": "Use hello"}
 if case in {"hang", "orphan"}:
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
     pathlib.Path("child.pid").write_text(str(child.pid))
@@ -72,8 +79,8 @@ if provider == "codex":
     emit({"type": "item.completed", "item": {"type": "agent_message", "text": text}})
     emit({"type": "turn.completed", "usage": {"output_tokens": 20}})
 elif provider == "opencode":
-    emit({"type": "text", "sessionID": "native-opencode", "part": {"text": text}})
-    emit({"type": "step_finish", "part": {"reason": "stop", "tokens": {"output": 20}}})
+    emit({"type": "opencrow.v2.response", "session_id": "native-opencode", "text": text})
+    emit({"type": "opencrow.v2.completed", "session_id": "native-opencode", "usage": {"output": 20}})
 else:
     emit({"type": "result", "status": "SUCCESS", "response": text, "usage": {"output_tokens": 20}})
 '''
@@ -92,6 +99,62 @@ def runner(tmp_path, monkeypatch):
     import opencrow_worker_runner
     monkeypatch.setenv("OPENCROW_FAKE_RUNNER", str(Path(opencrow_worker_runner.__file__).resolve()))
     monkeypatch.setenv("OPENCROW_FAKE_CASE", "success")
+    # Unit fixture for the SDK RPC boundary. Real engine/SDK tests live in
+    # packages/opencode/tests and exercise the actual pinned OpenCode packages.
+    import opencrow_opencode as sdk
+    sdk_state = tempfile.TemporaryDirectory(prefix="oc-sdk-fixture-")
+    monkeypatch.setenv("OPENCROW_OPENCODE_STATE_DIR", sdk_state.name)
+    endpoint = sdk.socket_path()
+    endpoint.parent.mkdir(mode=0o700, parents=True)
+    processes = {}
+    class Handler(socketserver.StreamRequestHandler):
+        def handle(self):
+            value = json.loads(self.rfile.readline())
+            def send(**frame):
+                self.wfile.write((json.dumps({"id": value["id"], **frame}) + "\n").encode()); self.wfile.flush()
+            if value["method"] == "health":
+                if os.environ.get("OPENCROW_FAKE_SDK_UNAVAILABLE"):
+                    send(error={"message": "SDK unavailable"})
+                else:
+                    send(result={"version": "2.1.4", "mode": "embedded"})
+                return
+            p = value.get("params", {})
+            if value["method"] == "form.reply":
+                process = processes[p["session_id"]]
+                Path(f"/proc/{process.pid}/cwd/native-answer.json").write_text(json.dumps(p["answer"]))
+                send(result={})
+                return
+            if value["method"] == "interrupt":
+                process = processes.get(p.get("session_id"))
+                if process and process.poll() is None:
+                    os.killpg(process.pid, signal.SIGTERM)
+                send(result={}); return
+            session = p.get("session_id") or "native-opencode-" + p["environment"]["OPENCROW_WORKER_ID"]
+            args = []
+            for key in ("model", "effort", "session_id"):
+                if p.get(key): args += ["--" + key.replace("_", "-"), p[key]]
+            process = subprocess.Popen([sys.executable, str(binaries / "opencode"), *args],
+                cwd=p["workspace"], env={**os.environ, **p.get("environment", {})},
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+            processes[session] = process
+            process.stdin.write(p["prompt"].encode()); process.stdin.close()
+            try:
+                for line in process.stdout:
+                    event = json.loads(line)
+                    event["session_id"] = session
+                    send(event=event)
+                code = process.wait(timeout=10)
+                send(result={"complete": True}) if code == 0 else send(error={"message": "SDK turn failed"})
+            except (OSError, ValueError):
+                pass
+            finally:
+                if process.poll() is None: os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=10)
+                processes.pop(session, None)
+    class Server(socketserver.ThreadingUnixStreamServer):
+        daemon_threads = True
+    server = Server(str(endpoint), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
     instance = Runner()
     yield instance
     for worker in instance.status()["workers"]:
@@ -99,6 +162,7 @@ def runner(tmp_path, monkeypatch):
     deadline = time.monotonic() + 5
     while any(w["active"] for w in instance.status()["workers"]) and time.monotonic() < deadline:
         time.sleep(0.05)
+    server.shutdown(); server.server_close(); sdk_state.cleanup()
 
 
 def wait(runner, worker_id, state="completed", active=False, timeout=10):
@@ -121,6 +185,18 @@ def start(runner, tmp_path, provider="codex", **kwargs):
 def call(operation, **args):
     response = mcp.build_server()._handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": operation, "arguments": args}})
     return json.loads(response["result"]["content"][0]["text"])
+
+
+def test_mcp_native_form_reply_continues_the_same_active_turn(runner, tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", "native_form")
+    worker = start(runner, tmp_path, "opencode")
+    pending = wait(runner, worker["worker_id"], "waiting_for_instructions", True)
+    replied = call("worker_reply", worker_id=worker["worker_id"], question_id=pending["pending_question"], message="Use hello")
+    assert replied["ok"], replied
+    result = wait(runner, worker["worker_id"])
+    assert result["native_session_id"] == pending["native_session_id"]
+    assert result["turn"] == 1
+    assert len((tmp_path / "invocations.jsonl").read_text().splitlines()) == 1
 
 
 @pytest.mark.parametrize("provider", COMMANDS)
@@ -290,7 +366,7 @@ def test_invalid_inputs_and_missing_dependencies_are_structured(runner, tmp_path
 def test_failed_handoff_keeps_original_session(runner, tmp_path, monkeypatch):
     worker = start(runner, tmp_path)
     before = wait(runner, worker["worker_id"])
-    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv("OPENCROW_FAKE_SDK_UNAVAILABLE", "1")
     with pytest.raises(WorkerError):
         runner.continuation(worker["worker_id"], {"provider": "opencode"}, handoff=True)
     after = runner.status(worker["worker_id"])
@@ -472,8 +548,11 @@ def test_large_unicode_tasks_use_retained_prompt_file(runner, tmp_path, provider
     worker = runner.start({"task": task, "provider": provider, "workspace": str(tmp_path)})
     result = wait(runner, worker["worker_id"])
     invocation = json.loads((tmp_path / "invocations.jsonl").read_text())
-    assert len(invocation["prompt"].encode()) < 64000
-    assert result["artifacts"]["prompt.txt"] in invocation["prompt"]
+    if provider == "opencode":
+        assert task in invocation["prompt"]  # SDK bridge reads the full prompt on stdin.
+    else:
+        assert len(invocation["prompt"].encode()) < 64000
+        assert result["artifacts"]["prompt.txt"] in invocation["prompt"]
     assert task in Path(result["artifacts"]["prompt.txt"]).read_text()
 
 

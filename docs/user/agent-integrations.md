@@ -8,7 +8,7 @@ Skills use Codex discovery. Lifecycle MCP is registered in `config.toml`; native
 
 ## OpenCode
 
-Skills use OpenCode's global Agent Skills directory. A local JavaScript plugin maps system-context, tool, compaction, and idle events; lifecycle MCP is merged into `opencode.json` according to the detected major version.
+OpenCode 2.0.0+ uses global Agent Skills discovery, a native V2 plugin directory in plural `plugins`, and lifecycle MCP under `mcp.servers`. Worker MCP, Constellation and the initializer share a pinned SDK adapter for sessions, streaming, resume and interrupt. The default embedded host opens no HTTP listener; an existing authenticated service can also be connected. See the [OpenCode integration](../../integrations/opencode/README.md) for upgrade and runtime setup.
 
 ## Claude Code
 

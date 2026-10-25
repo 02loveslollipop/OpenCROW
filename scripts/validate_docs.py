@@ -245,7 +245,7 @@ def main() -> int:
     errors: list[str] = []
     manifest = load_manifest(ROOT / "docs/wiki-manifest.json")
     validate_manifest(manifest, errors)
-    paths = sorted(path for path in ROOT.rglob("*.md") if not any(part in {".git", "dist"} for part in path.parts))
+    paths = sorted(path for path in ROOT.rglob("*.md") if not any(part in {".git", "dist", "node_modules"} for part in path.parts))
     external_cache: dict[str, Any] = {}
     if args.check_external and args.external_cache.is_file():
         try:

@@ -20,7 +20,8 @@ case "$provider" in
     npm install --global --prefix "$HOME/.local" @openai/codex
     ;;
   opencode)
-    curl -fsSL https://opencode.ai/install | bash
+    command -v npm >/dev/null 2>&1 || { printf 'OpenCode 2 CLI unresolved: npm is unavailable.\n' >&2; exit 4; }
+    npm install --global --prefix "$HOME/.local" @opencode/cli@2.1.4
     ;;
   claude)
     curl -fsSL https://claude.ai/install.sh | bash

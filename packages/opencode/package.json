@@ -1,0 +1,19 @@
+{
+  "name": "@opencrow/opencode-v2",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opencode/sdk": "2.1.4",
+    "@opencode/client": "2.1.4",
+    "@opencode/plugin": "2.1.4",
+    "bun": "1.4.4"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/bun": "1.4.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test --timeout 30000"
+  }
+}

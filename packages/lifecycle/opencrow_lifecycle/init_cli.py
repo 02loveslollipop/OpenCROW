@@ -44,15 +44,9 @@ def provider_command(
         command.append(prompt)
         return command
     if provider == "opencode":
-        command = ["opencode", "run", "--format", "json"]
-        if resume_id:
-            command.extend(["--session", resume_id])
-        if model:
-            command.extend(["--model", model])
-        if unsafe:
-            command.append("--auto")
-        command.append(prompt)
-        return command
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "opencode"))
+        from opencrow_opencode import turn_command
+        return turn_command(workspace=workspace, session_id=resume_id, model=model, full_auto=unsafe)
     if provider == "claude":
         command = ["claude", "--print", "--verbose", "--output-format", "stream-json"]
         if resume_id:
@@ -139,7 +133,8 @@ def main() -> int:
         environment = os.environ.copy()
         environment["OPENCROW_PROVIDER"] = args.provider
         environment["OPENCROW_WORKSPACE"] = str(workspace)
-        return subprocess.run(command, cwd=workspace, env=environment, check=False).returncode
+        return subprocess.run(command, cwd=workspace, env=environment, check=False,
+                              **({"input": prompt_text(args.append_prompt), "text": True} if args.provider == "opencode" else {})).returncode
     except LifecycleError as exc:
         print(f"opencrow-init: {exc}", file=sys.stderr)
         return 2

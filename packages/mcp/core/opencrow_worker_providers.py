@@ -1,9 +1,14 @@
-"""CLI contracts for standalone workers (no SDK or service dependency)."""
+"""Native provider contracts; OpenCode uses the shared V2 SDK transport."""
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "opencode"))
+import opencrow_opencode as opencode_sdk
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,17 +43,22 @@ def settings(provider: str, model: Any = None, effort: Any = None) -> dict:
 
 def probe(provider: str, model: str | None = None, effort: str | None = None) -> dict:
     settings(provider, model, effort)
+    if provider == "opencode":
+        try:
+            health = opencode_sdk.ensure_host()
+        except (opencode_sdk.SDKError, OSError) as exc:
+            raise WorkerError(f"OpenCode V2 SDK is unavailable: {exc}", 127) from exc
+        return {"provider": provider, "executable": sys.executable, "version": health["version"], "available": True, "backend": health["mode"]}
     executable = shutil.which(COMMANDS[provider])
     if not executable:
         raise WorkerError(f"Required dependency is not available: {COMMANDS[provider]}", 127)
-    help_args = ["exec", "--help"] if provider == "codex" else ["run", "--help"] if provider == "opencode" else ["--help"]
+    help_args = ["exec", "--help"] if provider == "codex" else ["--help"]
     required = {
         "codex": ["--json", "--dangerously-bypass-approvals-and-sandbox", "--model", "--skip-git-repo-check"],
-        "opencode": ["--format", "--auto", "--dir", "--session", "--model"],
         "antigravity": ["--output-format", "--conversation", "--dangerously-skip-permissions", "--model", "--print-timeout"],
     }[provider]
     if effort:
-        required.append({"codex": "--config", "opencode": "--variant", "antigravity": "--effort"}[provider])
+        required.append({"codex": "--config", "antigravity": "--effort"}[provider])
     try:
         help_result = subprocess.run([executable, *help_args], capture_output=True, text=True, timeout=5)
         help_text = help_result.stdout + help_result.stderr
@@ -78,14 +88,8 @@ def command(worker: dict, prompt: str) -> list[str]:
         # A positional '-' reads the task from stdin, including on resume.
         return result + ([session] if session else []) + ["-"]
     if provider == "opencode":
-        result = [binary, "run", "--format", "json", "--auto", "--dir", worker["workspace"]]
-        if session:
-            result += ["--session", session]
-        if model:
-            result += ["--model", model]
-        if effort:
-            result += ["--variant", effort]
-        return result + ["--", prompt]
+        return opencode_sdk.turn_command(workspace=worker["workspace"], session_id=session,
+            model=model, effort=effort, full_auto=True, timeout_sec=worker["timeout_sec"])
     result = [binary, "--output-format", "stream-json", "--dangerously-skip-permissions", "--print-timeout", f"{worker['timeout_sec']}s"]
     if session:
         result += ["--conversation", session]
@@ -123,14 +127,14 @@ def normalize(provider: str, value: Any) -> Event:
         if kind == "item.completed" and isinstance(item, dict) and item.get("type") == "agent_message":
             return Event("response", {"text": item.get("text", "")})
     elif provider == "opencode":
-        session = value.get("sessionID")
-        part = value.get("part") if isinstance(value.get("part"), dict) else {}
-        if kind == "text":
-            return Event("response", {"text": part.get("text", "")}, session=session)
-        if kind == "step_finish":
-            return Event("turn_result", {"usage": part.get("tokens"), "cost": part.get("cost"), "reason": part.get("reason")},
-                         session=session, terminal=part.get("reason") in {"stop", "end_turn"})
-        if kind == "error":
+        session = value.get("session_id")
+        if kind == "opencrow.v2.response":
+            return Event("response", {"text": value.get("text", "")}, session=session)
+        if kind == "opencrow.v2.completed":
+            return Event("turn_result", {"usage": value.get("usage"), "cost": value.get("cost")}, session=session, model=model, terminal=True)
+        if kind in {"opencrow.v2.question", "opencrow.v2.permission"}:
+            return Event("provider_question" if kind.endswith("question") else "provider_permission", value, session=session)
+        if kind == "opencrow.v2.failed":
             return Event("provider_error", value, session=session, failed=True)
     else:
         session = value.get("conversation_id") or value.get("session_id")

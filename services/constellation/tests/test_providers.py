@@ -23,9 +23,10 @@ from constellation.runtime import RuntimeSocket
 def test_provider_commands_use_native_full_auto_and_resume(tmp_path: Path) -> None:
     opencode = OpenCodeAdapter()
     command = opencode.start_command(prompt="solve", workspace=tmp_path, model="vendor/model")
-    assert command[:4] == ["opencode", "run", "--format", "json"]
-    assert "--auto" in command
-    assert "--session" in opencode.resume_command(
+    assert command[0] == sys.executable
+    assert command[1].endswith("opencrow_opencode.py")
+    assert "--full-auto" in command
+    assert "--session-id" in opencode.resume_command(
         session_id="oc-session", prompt="continue", workspace=tmp_path, model=None
     )
 
@@ -40,23 +41,26 @@ def test_provider_commands_use_native_full_auto_and_resume(tmp_path: Path) -> No
     assert "--dangerously-skip-permissions" in command
 
 
-def test_opencode_process_adapter_streams_json_and_native_session_id(tmp_path: Path) -> None:
-    executable = tmp_path / "opencode-fixture"
-    executable.write_text(
-        "#!/bin/sh\n"
-        "printf '%s\\n' '{\"type\":\"session\",\"session_id\":\"oc-native\"}'\n"
-        "printf '%s\\n' '{\"type\":\"result\",\"text\":\"done\"}'\n"
-    )
-    executable.chmod(0o755)
-    adapter = OpenCodeAdapter(command=str(executable))
+def test_opencode_adapter_reuses_shared_sdk_turn_and_native_session(tmp_path: Path, monkeypatch) -> None:
+    import constellation.providers as providers
+    calls = []
+    class FakeSDKTurn:
+        def __init__(self, **values):
+            calls.append(values)
+            self.provider_session_id = values.get("session_id") or "oc-native"
+        def stream(self):
+            yield {"type": "opencrow.v2.session", "session_id": self.provider_session_id}
+            yield {"type": "opencrow.v2.completed", "session_id": self.provider_session_id, "final_response": "done"}
+        def interrupt(self):
+            self.interrupted = True
+    monkeypatch.setattr(providers.opencode_sdk, "Turn", FakeSDKTurn)
+    adapter = OpenCodeAdapter()
     turn = adapter.start(prompt="solve", workspace=tmp_path)
     events = list(turn.stream())
-    assert [event["type"] for event in events] == ["session", "result"]
     assert adapter.extract_session_id(events[0]) == "oc-native"
-    resume = adapter.resume_command(
-        session_id="oc-native", prompt="continue", workspace=tmp_path, model=None
-    )
-    assert resume[resume.index("--session") + 1] == "oc-native"
+    adapter.resume(session_id="oc-native", prompt="continue", workspace=tmp_path)
+    assert calls[1]["session_id"] == "oc-native"
+    assert calls[0]["full_auto"] is True
 
 
 def test_claude_process_adapter_streams_json_and_resumes_native_session(tmp_path: Path) -> None:
@@ -282,10 +286,11 @@ class _RecoveryAdapter:
         return event.get("session_id")
 
 
-def test_lost_provider_session_records_failure_and_saves_replacement_id(tmp_path: Path) -> None:
+@pytest.mark.parametrize("provider", ["claude", "opencode"])
+def test_lost_provider_session_records_failure_and_saves_replacement_id(tmp_path: Path, provider) -> None:
     socket = RuntimeSocket.__new__(RuntimeSocket)
     socket.runtime_id = "fixture-runtime"
-    socket.adapters = {"opencode": _RecoveryAdapter()}
+    socket.adapters = {provider: _RecoveryAdapter()}
     socket.active_turns = {}
     sent: list[dict] = []
     socket._send = sent.append
@@ -297,15 +302,23 @@ def test_lost_provider_session_records_failure_and_saves_replacement_id(tmp_path
         "# Handoff\n\n### Evidence\nold\n\n### Failures\nnone\n\n### Artifacts\nold\n\n"
         "### Reproduce\nold\n\n### Exact next actions\ncontinue\n"
     )
-    socket._run_provider_turn(
-        challenge_id="challenge",
-        agent_id="agent",
-        provider="opencode",
-        prompt="continue",
-        workspace=tmp_path,
-        model=None,
-        provider_session_id="lost-session",
-    )
+    def run():
+        socket._run_provider_turn(
+            challenge_id="challenge",
+            agent_id="agent",
+            provider=provider,
+            prompt="continue",
+            workspace=tmp_path,
+            model=None,
+            provider_session_id="lost-session",
+        )
+    if provider == "opencode":
+        with pytest.raises(RuntimeError, match="native session was lost"):
+            run()
+        assert not any(item.get("provider_session_id") == "replacement-session" for item in sent)
+        assert "work was not replayed" in (tmp_path / "CHANGELOG.md").read_text()
+        return
+    run()
     changelog = (tmp_path / "CHANGELOG.md").read_text()
     assert "native session was lost" in changelog
     assert "replacement session" in changelog

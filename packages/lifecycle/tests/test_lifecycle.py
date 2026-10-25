@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -273,7 +274,7 @@ def test_target_search_policy_allows_general_research() -> None:
     ("provider", "binary", "unsafe_flag"),
     [
         ("codex", "codex", "--dangerously-bypass-approvals-and-sandbox"),
-        ("opencode", "opencode", "--auto"),
+        ("opencode", sys.executable, "--full-auto"),
         ("claude", "claude", "--dangerously-skip-permissions"),
         ("antigravity", "agy", "--dangerously-skip-permissions"),
     ],
