@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from opencrow_web_proxy_mcp import OPERATIONS as PROXY_OPERATIONS, proxy_tools, register_resources
 
 from opencrow_mcp_core import (
     MCPTool,
@@ -29,7 +30,7 @@ OPERATIONS = [
     {"name": "web_discover", "description": "Directory, path, or vhost discovery with ffuf, gobuster, or dirb."},
     {"name": "web_fuzz", "description": "Typed request fuzzing with wfuzz."},
     {"name": "web_sqlmap_scan", "description": "Typed SQL injection automation with sqlmap."},
-]
+] + PROXY_OPERATIONS
 
 
 def _wordlist_error(operation: str, wordlist: Path, inputs: dict[str, object]) -> dict[str, object]:
@@ -51,6 +52,8 @@ def toolbox_verify(arguments: dict[str, object]) -> dict[str, object]:
         {"dependency": "wfuzz", "available": command_exists("wfuzz")},
         {"dependency": "sqlmap", "available": command_exists("sqlmap")},
     ]
+    from opencrow_web_proxy import dependencies
+    observations.extend(dependencies())
     return success_envelope(
         toolbox=TOOLBOX_ID,
         operation="toolbox_verify",
@@ -365,6 +368,8 @@ def build_server() -> StdioMCPServer:
             ),
         ]
     )
+    server.register_tools(proxy_tools(TOOLBOX_ID))
+    register_resources(server)
     return server
 
 

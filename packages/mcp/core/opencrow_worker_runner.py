@@ -220,10 +220,20 @@ class Runner:
         timeout = timeout_input(args.get("timeout_sec", 300))
         availability = probe(**config)
         worker_id = uuid.uuid4().hex
+        proxy_session = args.get("proxy_session_id")
+        if proxy_session is not None:
+            from opencrow_web_proxy import status
+            from opencrow_web_proxy_store import ProxyError
+            try:
+                proxy_status = status(proxy_session)
+                if proxy_status["state"] != "running" or proxy_status["workspace"] != str(Path(args["workspace"]).expanduser().resolve()):
+                    raise WorkerError("Proxy must be running and owned by the worker's source workspace")
+            except (ProxyError, OSError) as exc:
+                raise WorkerError("Proxy preflight failed: " + str(exc)) from exc
         workspace = self.workspace(worker_id, args.get("workspace"), args.get("workspace_mode", "auto"), args.get("base_ref"))
         worker = {"worker_id": worker_id, "task": task, **config, **workspace,
                   "executable": availability["executable"], "provider_version": availability["version"],
-                  "timeout_sec": timeout, "native_session_id": None, "history": [], "pending_question": None,
+                  "timeout_sec": timeout, "native_session_id": None, "history": [], "pending_question": None, "proxy_session_id": proxy_session,
                   "checkpoint": None, "checkpoint_turn": None, "created_at": time.time()}
         with self.transaction() as db:
             self.reserve(db, worker, task)
@@ -253,6 +263,9 @@ class Runner:
                                ("stdout.jsonl", "stderr.log", "supervisor.log", "prompt.txt", "review.json")}
         if worker.get("supervisor_log"):
             result["artifacts"]["supervisor.log"] = worker["supervisor_log"]
+        if worker.get("proxy_session_id"):
+            result["artifacts"]["proxy-session.json"] = str(Path(worker["turn_artifacts"]) / "proxy-session.json")
+            result["proxy_history_uri"] = f"opencrow://opencrow-web-proxy-mcp/sessions/{worker['proxy_session_id']}/history"
         return result
 
     def status(self, worker_id=None):
@@ -517,7 +530,14 @@ class Runner:
         worker_id, token = worker["worker_id"], worker["token"]
         directory = Path(worker["turn_artifacts"])
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        route = None
+        if worker.get("proxy_session_id"):
+            from opencrow_web_proxy_routing import attach
+            route = attach(worker["proxy_session_id"], worker["workspace"], directory,
+                           {"worker_id": worker_id, "provider": worker["provider"]}, source_workspace=worker["source_workspace"])
         prompt = self.prompt(worker)
+        if route:
+            prompt += "\n\n" + route["instructions"]
         prompt_file = directory / "prompt.txt"
         prompt_file.write_text(prompt)
         execution_prompt = prompt
@@ -541,7 +561,13 @@ class Runner:
                 self.event(db, current, "cancelled", {})
                 self.save(db, current)
                 return
-            process = subprocess.Popen(command(worker, execution_prompt), cwd=worker["workspace"], env=env,
+            if route:
+                from opencrow_web_proxy_routing import provider_environment, codex_cli_settings
+                env = provider_environment(env, route)
+            launch_command = command(worker, execution_prompt)
+            if route and worker["provider"] == "codex":
+                launch_command[1:1] = ["--config", codex_cli_settings(route)]
+            process = subprocess.Popen(launch_command, cwd=worker["workspace"], env=env,
                                        stdin=subprocess.PIPE if worker["provider"] in {"codex", "opencode"} else subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
             identity = {"pid": process.pid, "start": process_identity(process.pid), "token": token}

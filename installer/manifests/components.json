@@ -3,6 +3,6 @@
   "headless_toolboxes": ["utility", "network", "reversing", "pwn", "web", "forensics", "stego", "crypto", "osint"],
   "optional_toolboxes": ["sagemath"],
   "manual_tools": ["burpsuite", "zaproxy", "autopsy", "openstego", "steghsolve", "ghidra-gui"],
-  "full_components": ["initializer", "domain-mcp", "constellation", "miniconda", "ctf-environment", "optional-sage-environment", "os-toolboxes"],
+  "full_components": ["initializer", "domain-mcp", "constellation", "miniconda", "ctf-environment", "optional-sage-environment", "os-toolboxes", "native-web-proxy-with-web-toolbox"],
   "skills_components": ["skills", "provider-hooks", "lifecycle-mcp", "helper-python", "management-cli"]
 }

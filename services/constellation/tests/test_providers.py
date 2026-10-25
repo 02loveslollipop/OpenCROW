@@ -385,3 +385,40 @@ def test_all_present_lifecycle_documents_are_uploaded_as_artifacts(tmp_path: Pat
     socket._upload_lifecycle_artifacts(agent_id="agent", challenge_id="challenge", workspace=tmp_path)
     assert uploaded == ["CHALLENGE.md", "FINDINGS.md", "CHANGELOG.md", "HANDOFF.md", "WRITEUP.md"]
     assert events[0]["event_type"] == "lifecycle_artifacts_uploaded"
+
+
+def test_proxy_routing_is_tool_only_for_each_constellation_provider(tmp_path, monkeypatch):
+    import json
+    from constellation.providers import OpenCodeAdapter, CodexAdapter, ClaudeAdapter
+    route_dir = tmp_path / "private-route"; route_dir.mkdir()
+    bundle = route_dir / "env.json"; bundle.write_text(json.dumps({"http_proxy": "http://route:route@127.0.0.1:12345"}))
+    route = {"tool_environment": str(bundle), "shell_hook": str(route_dir / "hook.sh"), "session_id": "a" * 32}
+    claude = ClaudeAdapter(); claude.proxy_route = route
+    monkeypatch.setenv("http_proxy", "inherited-proxy")
+    assert "http_proxy" not in claude.environment()
+    assert claude.environment()["BASH_ENV"] == route["shell_hook"]
+    codex = CodexAdapter(); codex.proxy_route = route
+    assert codex._tool_proxy_config()["config"]["shell_environment_policy"]["set"]["http_proxy"].startswith("http://route")
+    opencode = OpenCodeAdapter(); opencode.proxy_route = route
+    assert opencode._tool_proxy()["tool_environment"]["http_proxy"].startswith("http://route")
+    assert opencode._tool_proxy()["tool_environment"]["OPENCROW_WEB_PROXY_SESSION"] == route["session_id"]
+
+
+def test_current_codex_sdk_accepts_proxy_tool_policy_without_model_network_calls(tmp_path):
+    import json
+    import importlib.util
+    if importlib.util.find_spec("openai_codex") is None: pytest.skip("Optional SDK is not installed")
+    from openai_codex import ApprovalMode
+    route = {"tool_environment": str(tmp_path / "env.json"), "shell_hook": str(tmp_path / "hook"), "session_id": "b" * 32}
+    Path(route["tool_environment"]).write_text(json.dumps({"http_proxy": "http://fixture:route@127.0.0.1:12345"}))
+    class Thread:
+        id = "native-current-sdk"
+        def turn(self, value, **kwargs): return _FixtureTurn()
+    class Client:
+        def thread_start(self, **kwargs):
+            assert kwargs["approval_mode"] == ApprovalMode.deny_all
+            assert kwargs["config"]["shell_environment_policy"]["set"]["http_proxy"].startswith("http://fixture")
+            assert kwargs["sandbox"] is not None
+            return Thread()
+    adapter = CodexAdapter(); adapter.proxy_route = route; adapter._client = Client()
+    assert adapter.start(prompt="fixture", workspace=tmp_path).provider_session_id == "native-current-sdk"

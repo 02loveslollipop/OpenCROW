@@ -508,6 +508,9 @@ class StateEngine:
                 stem = server_names.get(toolbox)
                 if stem:
                     self._write_launcher(f"opencrow-{stem}-mcp", str(servers / f"opencrow_{stem}_mcp.py"), managed)
+            if "web" in toolboxes:
+                self._write_launcher("opencrow-web-proxy-mcp", str(servers / "opencrow_web_proxy_mcp.py"), managed)
+                self._write_launcher("opencrow-web-proxy", str(self.paths.current / "packages/mcp/core/opencrow_web_proxy.py"), managed)
             for stem in ("netcat", "ssh", "minecraft", "agy", "worker"):
                 self._write_launcher(f"opencrow-{stem}-mcp", str(servers / f"opencrow_{stem}_mcp.py"), managed)
             self._write_constellation_launcher("opencrow-constellation-runtime", "runtime", managed)
@@ -784,6 +787,11 @@ class StateEngine:
             except Exception:
                 shutil.rmtree(stage, ignore_errors=True)
                 raise
+        try:
+            self._stop_proxy_sessions()
+        except Exception:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise
         self._commit_stage(stage)
         backups: list[dict[str, Any]] = []
         managed_paths = self._install_launchers(mode, toolboxes or [])
@@ -980,6 +988,7 @@ class StateEngine:
     def rollback(self) -> dict[str, Any]:
         if not self.paths.previous.is_dir() or not self.paths.previous_manifest.is_file():
             raise InstallError("No prior successful managed snapshot is available.")
+        self._stop_proxy_sessions()
         temporary = self.paths.data / ".rollback-current"
         if temporary.exists():
             shutil.rmtree(temporary)
@@ -1103,6 +1112,12 @@ class StateEngine:
         )
         if not python:
             issues.append("No lifecycle Python interpreter is available.")
+        web_proxy = None
+        if python and "web" in state.get("selected_toolboxes", []):
+            check = subprocess.run([python, str(self.paths.current / "packages/mcp/core/opencrow_web_proxy.py"), "verify"], capture_output=True, text=True, timeout=10, check=False)
+            try: web_proxy = {item["dependency"]: item["available"] for item in json.loads(check.stdout)}
+            except (ValueError, TypeError, KeyError): web_proxy = {"python>=3.12": False, "h11": False, "cryptography": False}
+            if not all(web_proxy.values()): warnings.append("Native web proxy dependencies are missing; provision the web toolbox or packages/mcp/requirements-web-proxy.txt")
         return {
             "ok": not issues,
             "version": state.get("version") if state else None,
@@ -1112,6 +1127,7 @@ class StateEngine:
             "integrations": integrations,
             "issues": issues,
             "warnings": warnings,
+            "web_proxy": web_proxy,
         }
 
     def _remove_integration_config(self, provider: str, backups: list[dict[str, Any]] | None = None) -> None:
@@ -1286,7 +1302,17 @@ class StateEngine:
                 removed.append(provider)
         return removed, unresolved
 
+    def _stop_proxy_sessions(self) -> None:
+        script = self.paths.current / "packages/mcp/core/opencrow_web_proxy.py"
+        if not script.is_file(): return
+        environment = dict(os.environ)
+        environment["OPENCROW_WEB_PROXY_STATE_DIR"] = environment.get("OPENCROW_WEB_PROXY_STATE_DIR", str(self.paths.state / "web-proxy"))
+        result = subprocess.run([sys.executable, str(script), "stop-all"], env=environment, capture_output=True, text=True, timeout=30, check=False)
+        if result.returncode:
+            raise InstallError("Managed web proxy shutdown failed; installation assets and private history were retained")
+
     def uninstall(self, *, purge_env: bool, purge_system: bool, purge_agent_clis: bool) -> dict[str, Any]:
+        self._stop_proxy_sessions()
         state = self.state()
         purged_packages, system_unresolved = self._purge_system_packages(state) if purge_system else ([], [])
         purged_clis, cli_unresolved = self._purge_agent_clis(state) if purge_agent_clis else ([], [])

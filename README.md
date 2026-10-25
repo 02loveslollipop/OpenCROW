@@ -48,3 +48,5 @@ make build-releases
 See [Quick start](docs/user/quick-start.md), [installation](docs/user/installation.md), [challenge lifecycle](docs/user/challenge-lifecycle.md), and [Constellation operations](docs/operator/constellation.md).
 
 The public GitHub Wiki is generated from a manifest-selected subset of repository documentation at stable releases. Direct Wiki edits are overwritten and are not supported.
+
+The full web toolbox includes a [native headless HTTP(S) proxy](docs/user/web-proxy.md) for scoped observation, interception, editing, replay and sanitized evidence, with provider-neutral MCP controls and worker tool routing.

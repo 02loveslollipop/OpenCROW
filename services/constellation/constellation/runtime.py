@@ -198,6 +198,7 @@ class RuntimeSocket:
             workspace=workspace,
             model=str(agent.get("model") or "") or None,
             provider_session_id=str(agent.get("provider_session_id") or "") or None,
+            proxy_session_id=(agent.get("metadata") or {}).get("proxy_session_id") or (challenge.get("metadata") or {}).get("proxy_session_id"),
         )
 
     def _prompt_agent(self, command: dict[str, Any]) -> None:
@@ -250,12 +251,27 @@ class RuntimeSocket:
         workspace: Path,
         model: str | None,
         provider_session_id: str | None,
+        proxy_session_id: str | None = None,
     ) -> None:
         started_phase = self._lifecycle_phase(workspace)
         document_versions = self._document_versions(workspace)
         adapter = self.adapters.get(provider)
         if adapter is None:
             raise RuntimeError(f"Runtime {self.runtime_id} does not advertise provider {provider}; no fallback is allowed.")
+        route_file = workspace / ".opencrow/proxy-route.json"
+        if not proxy_session_id and route_file.is_file():
+            proxy_session_id = json.loads(route_file.read_text())["session_id"]
+        if proxy_session_id:
+            from opencrow_web_proxy_routing import attach
+            from opencrow_web_proxy_store import write_private, session_dir
+            route = attach(proxy_session_id, workspace, session_dir(proxy_session_id) / "routes" / hashlib.sha256(agent_id.encode()).hexdigest()[:16], {"provider": provider, "worker_id": agent_id, "challenge_id": challenge_id}, source_workspace=workspace.parent)
+            route_file.parent.mkdir(parents=True, exist_ok=True)
+            write_private(route_file, json.dumps(route).encode())
+            # A per-agent adapter keeps concurrent challenges' routes separate.
+            adapter = adapter_for(provider, command=adapter.command, model=adapter.model)
+            adapter.proxy_route = route
+            prompt += "\n\n" + route["instructions"]
+            self._send({"action": "agent_event", "agent_id": agent_id, "challenge_id": challenge_id, "event_type": "web_proxy_attached", "payload": {"session_id": proxy_session_id, "history_uri": route["history_uri"], "artifact": str(route_file)}})
         availability = adapter.availability()
         if not availability.available:
             raise RuntimeError(
@@ -607,6 +623,8 @@ class RuntimeSocket:
 
     def _upload_lifecycle_artifacts(self, *, agent_id: str, challenge_id: str, workspace: Path) -> None:
         candidates = [workspace / name for name in LIFECYCLE_DOCUMENTS if (workspace / name).is_file()]
+        proxy_reference = workspace / ".opencrow/proxy-route.json"
+        if proxy_reference.is_file(): candidates.append(proxy_reference)
         if not candidates:
             return
         try:

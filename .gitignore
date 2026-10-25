@@ -5,7 +5,9 @@ constellation/private/
 dist/
 dist-pages/
 .pytest_cache/
-node_modules/
+node_modules
+.opencrow/proxy/
+.opencrow/proxy-route.json
 .cache/
 .vscode/
 .agents/

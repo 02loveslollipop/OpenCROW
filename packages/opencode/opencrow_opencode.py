@@ -121,7 +121,8 @@ def ensure_host() -> dict:
         try:
             process = subprocess.Popen([bun, str(ROOT / "daemon.ts"), str(path), str(directory / "sessions.sqlite")], cwd=ROOT,
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
-                env={key: value for key, value in os.environ.items() if not key.startswith("OPENCROW_WORKER_")})
+                env={key: value for key, value in os.environ.items() if not key.startswith(("OPENCROW_WORKER_", "OPENCROW_WEB_PROXY_"))
+                     and not (os.environ.get("OPENCROW_WEB_PROXY_TOOL_ENV") and key in {"BASH_ENV", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS"})})
         finally:
             os.close(log)
         threading.Thread(target=process.wait, daemon=True).start()
@@ -144,13 +145,19 @@ def ensure_host() -> dict:
 class Turn:
     def __init__(self, *, prompt: str, workspace: str | Path, session_id: str | None = None,
                  model: str | None = None, effort: str | None = None, full_auto: bool = True,
-                 timeout_sec: int = 300) -> None:
+                 timeout_sec: int = 300, tool_environment: dict | None = None) -> None:
         ensure_host()
         self.input = {"prompt": prompt, "workspace": str(Path(workspace).resolve()), "session_id": session_id,
                       "model": model, "effort": effort, "full_auto": full_auto, "timeout_sec": timeout_sec}
         self.input = {key: value for key, value in self.input.items() if value is not None}
         self.input["environment"] = {key: os.environ[key] for key in (
             "OPENCROW_WORKER_STATE_DIR", "OPENCROW_WORKER_ID", "OPENCROW_WORKER_TURN_TOKEN") if key in os.environ}
+        if tool_environment is None and os.environ.get("OPENCROW_WEB_PROXY_TOOL_ENV"):
+            tool_environment = json.loads(Path(os.environ["OPENCROW_WEB_PROXY_TOOL_ENV"]).read_text())
+            for key in ("OPENCROW_WEB_PROXY_SESSION", "OPENCROW_WEB_PROXY_TOOL_ENV"):
+                if key in os.environ: tool_environment[key] = os.environ[key]
+        if tool_environment:
+            self.input["environment"].update(tool_environment)
         self.provider_session_id = session_id
         self.pending_form: dict | None = None
         self._connection: socket.socket | None = None

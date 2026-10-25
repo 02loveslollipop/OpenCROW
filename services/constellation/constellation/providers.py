@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "packages/opencode"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "packages/mcp/core"))
 import opencrow_opencode as opencode_sdk
 
 
@@ -203,6 +204,9 @@ class ProviderAdapter(ABC):
         environment = os.environ.copy()
         environment["OPENCROW_RUNTIME_FULL_AUTO"] = "1"
         environment["OPENCROW_PROVIDER"] = self.provider
+        if getattr(self, "proxy_route", None):
+            from opencrow_web_proxy_routing import provider_environment
+            environment = provider_environment(environment, self.proxy_route)
         return environment
 
     @abstractmethod
@@ -229,10 +233,17 @@ class OpenCodeAdapter(ProviderAdapter):
         return Availability(self.provider, True, "OpenCode V2 SDK", health["version"], "2.0.0", "compatible")
 
     def start(self, *, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:
-        return opencode_sdk.Turn(prompt=prompt, workspace=workspace, model=model or self.model, full_auto=True)
+        return opencode_sdk.Turn(prompt=prompt, workspace=workspace, model=model or self.model, full_auto=True, **self._tool_proxy())
 
     def resume(self, *, session_id: str, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:
-        return opencode_sdk.Turn(prompt=prompt, workspace=workspace, session_id=session_id, model=model or self.model, full_auto=True)
+        return opencode_sdk.Turn(prompt=prompt, workspace=workspace, session_id=session_id, model=model or self.model, full_auto=True, **self._tool_proxy())
+
+    def _tool_proxy(self):
+        route = getattr(self, "proxy_route", None)
+        if not route: return {}
+        environment = json.loads(Path(route["tool_environment"]).read_text())
+        environment.update(OPENCROW_WEB_PROXY_SESSION=route["session_id"], OPENCROW_WEB_PROXY_TOOL_ENV=route["tool_environment"])
+        return {"tool_environment": environment}
 
     def start_command(self, *, prompt: str, workspace: Path, model: str | None) -> list[str]:
         return opencode_sdk.turn_command(workspace=workspace, model=model or self.model)
@@ -321,6 +332,13 @@ class CodexAdapter(ProviderAdapter):
     provider = "codex"
     command = "codex"
 
+    def _tool_proxy_config(self):
+        if not getattr(self, "proxy_route", None): return {}
+        from opencrow_web_proxy_routing import codex_settings
+        config = codex_settings(self.proxy_route)
+        config["shell_environment_policy"]["set"].update(json.loads(Path(self.proxy_route["tool_environment"]).read_text()))
+        return {"config": config}
+
     def __init__(self, *, command: str | None = None, model: str | None = None) -> None:
         super().__init__(command=command, model=model)
         self._client: Any | None = None
@@ -334,10 +352,9 @@ class CodexAdapter(ProviderAdapter):
         if self.command != "codex":
             try:
                 from openai_codex import AppServerConfig
-
-                kwargs["config"] = AppServerConfig(codex_bin=self.command)
-            except Exception:
-                pass
+            except ImportError:
+                from openai_codex import CodexConfig as AppServerConfig
+            kwargs["config"] = AppServerConfig(codex_bin=self.command)
         self._client = Codex(**kwargs)
         return self._client
 
@@ -359,13 +376,14 @@ class CodexAdapter(ProviderAdapter):
 
     def start(self, *, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:
         from openai_codex import ApprovalMode, TextInput
-        from openai_codex.api import SandboxMode
+        sandbox = self._full_access_sandbox()
 
         thread = self._codex().thread_start(
             cwd=str(workspace),
             model=model or self.model,
             approval_mode=ApprovalMode.deny_all,
-            sandbox=SandboxMode.danger_full_access,
+            sandbox=sandbox,
+            **self._tool_proxy_config(),
         )
         turn = thread.turn(TextInput(text=prompt), cwd=str(workspace), model=model or self.model)
         wrapped = SDKTurn(turn)
@@ -374,14 +392,15 @@ class CodexAdapter(ProviderAdapter):
 
     def resume(self, *, session_id: str, prompt: str, workspace: Path, model: str | None = None) -> ProviderTurn:
         from openai_codex import ApprovalMode, TextInput
-        from openai_codex.api import SandboxMode
+        sandbox = self._full_access_sandbox()
 
         thread = self._codex().thread_resume(
             session_id,
             cwd=str(workspace),
             model=model or self.model,
             approval_mode=ApprovalMode.deny_all,
-            sandbox=SandboxMode.danger_full_access,
+            sandbox=sandbox,
+            **self._tool_proxy_config(),
         )
         turn = thread.turn(TextInput(text=prompt), cwd=str(workspace), model=model or self.model)
         wrapped = SDKTurn(turn)
@@ -390,6 +409,15 @@ class CodexAdapter(ProviderAdapter):
 
     def start_command(self, *, prompt: str, workspace: Path, model: str | None) -> list[str]:
         return []
+
+    @staticmethod
+    def _full_access_sandbox():
+        try:
+            from openai_codex.api import SandboxMode
+            return SandboxMode.danger_full_access
+        except ImportError:
+            from openai_codex import Sandbox
+            return Sandbox.full_access
 
     def resume_command(self, *, session_id: str, prompt: str, workspace: Path, model: str | None) -> list[str]:
         return []

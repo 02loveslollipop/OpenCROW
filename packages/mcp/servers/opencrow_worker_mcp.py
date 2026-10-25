@@ -25,7 +25,7 @@ TOOLS = {
         "Start a detached worker. Defaults to an isolated Git worktree, or the supplied directory outside Git. Executes with trusted full host access.",
         {"task": STRING, "provider": PROVIDER, "workspace": STRING, "model": MODEL, "effort": EFFORT,
          "workspace_mode": {"type": "string", "enum": ["auto", "worktree", "shared"], "default": "auto"},
-         "base_ref": STRING, "timeout_sec": TIMEOUT}, ["task", "provider", "workspace"]),
+         "base_ref": STRING, "timeout_sec": TIMEOUT, "proxy_session_id": STRING}, ["task", "provider", "workspace"]),
     "worker_status": ("Inspect one worker or list workers, including pending questions and result artifacts.", {"worker_id": STRING}, []),
     "worker_events": ("Read ordered durable events after a cursor. A bounded wait blocks only this MCP request, not workers.",
                       {"worker_id": STRING, "after": {"type": "integer", "minimum": 0},

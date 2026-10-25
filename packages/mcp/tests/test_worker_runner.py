@@ -45,6 +45,10 @@ if case != "missing_session":
     else: emit({"type": "system", "conversation_id": "native-agy", "model": "reported-model"})
 report("progress", "started task")
 report("alert", "review this result")
+if case == "proxy":
+    assert not any(key in os.environ for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"))
+    code = 'import os,urllib.request; assert os.environ.get("http_proxy"); print(urllib.request.urlopen(os.environ["OPENCROW_FAKE_PROXY_URL"]).status)'
+    subprocess.run(["bash", "-c", 'exec "$OPENCROW_FAKE_PROXY_PYTHON" -c "$OPENCROW_FAKE_PROXY_CODE"'], env={**os.environ, "OPENCROW_FAKE_PROXY_CODE": code}, check=True, stdout=subprocess.DEVNULL)
 if case == "native_form":
     emit({"type": "opencrow.v2.question", "session_id": "native-opencode", "form": {"id": "form-fixture", "title": "Choose", "fields": [{"key": "answer", "type": "string"}]}})
     deadline = time.monotonic() + 10
@@ -696,3 +700,32 @@ def test_shared_review_retains_committed_worker_changes(runner, tmp_path, monkey
     assert review["head"] != starting_commit
     assert review["base_commit"] == worker["base_commit"] == starting_commit
     assert "result.txt" in review["diff_stat"]
+
+
+def test_worker_tool_traffic_proxy_is_scoped_and_survives_followup(runner, tmp_path, monkeypatch):
+    import http.server
+    import opencrow_web_proxy as proxy
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_): pass
+        def do_GET(self):
+            self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok")
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("OPENCROW_WEB_PROXY_STATE_DIR", str(tmp_path / "proxy-state"))
+    monkeypatch.setenv("OPENCROW_FAKE_CASE", "proxy")
+    monkeypatch.setenv("OPENCROW_FAKE_PROXY_PYTHON", sys.executable)
+    monkeypatch.setenv("OPENCROW_FAKE_PROXY_URL", f"http://127.0.0.1:{server.server_port}/worker")
+    value = proxy.start({"workspace": str(tmp_path), "targets": [{"host": "127.0.0.1", "port": server.server_port, "allow_private": True}]})
+    identity = value["session_id"]
+    try:
+        worker = start(runner, tmp_path, proxy_session_id=identity)
+        result = wait(runner, worker["worker_id"])
+        rows = proxy.rpc(identity, "history")["requests"]
+        assert len(rows) == 1 and rows[0]["correlation"]["worker_id"] == worker["worker_id"]
+        assert Path(result["artifacts"]["proxy-session.json"]).is_file()
+        runner.continuation(worker["worker_id"], {"message": "Use the same proxy on this turn"})
+        wait(runner, worker["worker_id"])
+        assert len(proxy.rpc(identity, "history")["requests"]) == 2
+        assert "proxy_history_uri" in runner.status(worker["worker_id"])
+    finally:
+        proxy.stop(identity); proxy.delete(identity); server.shutdown(); server.server_close()

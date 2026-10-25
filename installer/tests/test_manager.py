@@ -899,3 +899,35 @@ def test_full_install_worker_launcher_and_skill(tmp_path: Path) -> None:
     assert {"worker_start", "worker_reply", "worker_handoff"} <= tools
     engine.uninstall(purge_env=False, purge_system=False, purge_agent_clis=False)
     assert not launcher.exists()
+
+
+def test_native_web_proxy_launchers_doctor_repair_and_uninstall_stop_owned_sessions(tmp_path, monkeypatch):
+    import opencrow_web_proxy as proxy
+    paths = paths_for(tmp_path)
+    monkeypatch.setenv("OPENCROW_PYTHON", sys.executable)
+    monkeypatch.setenv("OPENCROW_WEB_PROXY_STATE_DIR", str(tmp_path / "proxy-state"))
+    engine = StateEngine(paths)
+    engine.install(source=REPOSITORY, mode="full", agents=["codex"], toolboxes=["web"])
+    assert (paths.bin / "opencrow-web-proxy").is_file()
+    assert (paths.bin / "opencrow-web-proxy-mcp").is_file()
+    assert engine.doctor()["web_proxy"] == {"python>=3.12": True, "h11": True, "cryptography": True}
+    workspace = tmp_path / "workspace"; workspace.mkdir()
+    value = proxy.start({"workspace": str(workspace), "targets": [{"host": "127.0.0.1", "port": 12345, "allow_private": True}], "tls_intercept": True})
+    identity = value["session_id"]
+    try:
+        launcher = paths.bin / "opencrow-web-proxy"
+        result = subprocess.run([str(launcher), "status", identity], capture_output=True, text=True, check=True)
+        assert json.loads(result.stdout)["state"] == "running"
+        engine.repair()
+        assert proxy.status(identity)["state"] == "running"
+        engine.install(source=REPOSITORY, mode="full", agents=["codex"], toolboxes=["web"])
+        assert proxy.status(identity)["state"] == "stopped"
+        proxy.start({"session_id": identity})
+        engine.rollback()
+        assert proxy.status(identity)["state"] == "stopped"
+        proxy.start({"session_id": identity})
+        engine.uninstall(purge_env=False, purge_system=False, purge_agent_clis=False)
+        assert proxy.status(identity)["state"] == "stopped"
+        assert not Path(value["ca_certificate"]).exists()
+        assert (proxy.session_dir(identity) / "history.sqlite").exists()
+    finally: proxy.stop(identity); proxy.delete(identity)

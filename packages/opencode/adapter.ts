@@ -136,7 +136,7 @@ export class Adapter {
         if (!remote || typeof remote !== "object" || Array.isArray(remote) || Object.values(remote).some(value => typeof value !== "string")) throw new Error("OPENCROW_OPENCODE_REMOTE_ENV must be a JSON object of strings")
         const base = this.embedded ? Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined))
           : { PATH: "/usr/local/bin:/usr/bin:/bin", ...remote }
-        for (const key of Object.keys(base)) if (key.startsWith("OPENCROW_WORKER_") || ["OPENCROW_OPENCODE_TOKEN", "OPENCROW_OPENCODE_PASSWORD"].includes(key)) delete base[key]
+        for (const key of Object.keys(base)) if (key.startsWith("OPENCROW_WORKER_") || key.startsWith("OPENCROW_WEB_PROXY_") || ["BASH_ENV", "OPENCROW_OPENCODE_TOKEN", "OPENCROW_OPENCODE_PASSWORD"].includes(key)) delete base[key]
         await this.client.session.environment({ sessionID: id, variables: { ...base, ...input.environment } }, { signal })
       }
       if (input.session_id && model) await this.client.session.switchModel({ sessionID: id, model }, { signal })
