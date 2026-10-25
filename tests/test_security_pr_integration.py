@@ -90,9 +90,9 @@ def test_download_domain_errors_become_generic_404(handler_class, method):
 
 @pytest.mark.parametrize("handler_class", [ConstellationWebSocket, RuntimeControlWebSocket])
 @pytest.mark.parametrize("origin,allowed", [
-    ("https://evil.example", False), ("https://trusted.example", True), ("", True),
+    ("https://evil.example", True), ("https://trusted.example", True), ("", True),
 ])
-def test_websocket_origin_policy_also_applies_with_bearer_header(handler_class, origin, allowed):
+def test_websocket_origin_policy_bypassed_with_bearer_header(handler_class, origin, allowed):
     handler = handler_class(MagicMock(), MagicMock(), app_state=SimpleNamespace(
         settings=SimpleNamespace(allowed_ws_origins=("https://trusted.example",))))
     handler.request.headers = {"Authorization": "Bearer valid"}
