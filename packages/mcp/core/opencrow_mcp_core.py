@@ -588,6 +588,8 @@ class StdioMCPServer:
             self._write_message(stdout, response)
 
     def _handle_message(self, request: JSON) -> JSON | None:
+        if not isinstance(request, dict):
+            return self._error(None, -32600, "Invalid Request")
         method = request.get("method")
         request_id = request.get("id")
         params = request.get("params")
