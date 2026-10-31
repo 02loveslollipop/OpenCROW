@@ -1003,7 +1003,9 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
             payload = event.get("payload")
             if isinstance(payload, dict):
                 audience = payload.get("audience") if isinstance(payload.get("audience"), dict) else None
-                sender_id = (payload.get("sender") or {}).get("member_id")
+                # SECURITY: Explicitly validate sender as dict to prevent AttributeError from malformed payloads which could cause DoS
+                sender = payload.get("sender")
+                sender_id = sender.get("member_id") if isinstance(sender, dict) else None
                 if not self.app_state.storage.audience_allows(audience, self.member_id, sender_id=sender_id):
                     return
         current_member = self.app_state.storage.get_member(self.member_id)

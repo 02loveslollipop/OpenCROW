@@ -259,7 +259,7 @@ class ConstellationStorage:
             prompt=prompt,
             runtime_id=assigned_runtime,
             provider=provider,
-            model=(settings or {}).get("model"),
+            model=settings.get("model") if isinstance(settings, dict) else None,
         )
         command = self.queue_runtime_command(
             assigned_runtime,
