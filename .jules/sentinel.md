@@ -10,3 +10,8 @@
 **Vulnerability:** `secrets.compare_digest` in Python raises a `TypeError` ("comparing strings with non-ASCII characters is not supported") if one of the strings contains non-ASCII characters. The `X-Constellation-UI-Auth` header and JSON inputs were not encoded before comparison.
 **Learning:** Passing non-ASCII strings to `secrets.compare_digest` causes unhandled exceptions, potentially leading to Denial of Service or masking authentication bypasses if caught incorrectly. Using `isinstance(x, str)` is not enough as non-ASCII strings are still strings.
 **Prevention:** Always encode strings to bytes (`x.encode("utf-8")`) before passing them to `secrets.compare_digest`.
+
+## 2024-05-24 - Fix DoS via AttributeError in payload parsing
+**Vulnerability:** In `services/constellation/constellation/backend.py`, `sender_id = (payload.get("sender") or {}).get("member_id")` throws an `AttributeError` when `sender` is a string or another type instead of `dict` or `None`. This kills the websocket event loop since `_emit_event` is called asynchronously by `tornado.ioloop.IOLoop`. This allows an unauthenticated client capable of sending malformed JSON events to crash websocket processes.
+**Learning:** Using `or {}` only defends against `None`, not incorrect types (like a string). When accessing nested attributes of arbitrary incoming JSON, both `None` and wrong types must be explicitly handled, usually with `isinstance(obj, dict)`.
+**Prevention:** Always validate that a JSON payload field is explicitly a `dict` before invoking `.get()` on it, avoiding `or {}` unless you can strictly guarantee the field is either a `dict` or `None`.
