@@ -10,3 +10,8 @@
 **Vulnerability:** `secrets.compare_digest` in Python raises a `TypeError` ("comparing strings with non-ASCII characters is not supported") if one of the strings contains non-ASCII characters. The `X-Constellation-UI-Auth` header and JSON inputs were not encoded before comparison.
 **Learning:** Passing non-ASCII strings to `secrets.compare_digest` causes unhandled exceptions, potentially leading to Denial of Service or masking authentication bypasses if caught incorrectly. Using `isinstance(x, str)` is not enough as non-ASCII strings are still strings.
 **Prevention:** Always encode strings to bytes (`x.encode("utf-8")`) before passing them to `secrets.compare_digest`.
+
+## 2024-11-03 - Prevent AttributeError DoS when parsing nested JSON in WebSockets
+**Vulnerability:** In `ConstellationWebSocket._emit_event`, using `(payload.get("sender") or {}).get("member_id")` assumes `sender` is either missing or a dictionary. If an attacker sends a string (or other non-dict type) for `sender`, `or {}` does not handle it, and `.get()` raises an `AttributeError`, crashing the WebSocket loop and causing a Denial of Service.
+**Learning:** Using `or {}` only provides a fallback for `None` or empty values. It fails against type confusion attacks where JSON fields are populated with unexpected types.
+**Prevention:** Always explicitly validate that nested objects are dictionaries (e.g., using `isinstance(sender, dict)`) before calling `.get()` on them.
