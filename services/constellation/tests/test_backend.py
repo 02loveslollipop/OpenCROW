@@ -1,4 +1,8 @@
 import unittest
+import tornado.web
+import tornado.httputil
+from unittest.mock import MagicMock
+from constellation.backend import BaseHandler
 from constellation.backend import _normalize_handoff_urls
 
 class TestNormalizeHandoffUrls(unittest.TestCase):
@@ -27,6 +31,20 @@ class TestNormalizeHandoffUrls(unittest.TestCase):
         self.assertEqual(_normalize_handoff_urls(True), [])
         self.assertEqual(_normalize_handoff_urls({"a": 1}), [])
         self.assertEqual(_normalize_handoff_urls(set(["a", "b"])), [])
+
+
+class TestReadJsonBody(unittest.TestCase):
+    def test_unicode_decode_error(self):
+        app_state = MagicMock()
+        connection = MagicMock()
+        request = tornado.httputil.HTTPServerRequest(
+            method="POST", uri="/", body=b"\xff\xfe\xff", connection=connection
+        )
+        handler = BaseHandler(MagicMock(), request, app_state=app_state)
+        with self.assertRaises(tornado.web.HTTPError) as ctx:
+            handler.read_json_body()
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("Invalid JSON body", ctx.exception.reason)
 
 if __name__ == "__main__":
     unittest.main()
