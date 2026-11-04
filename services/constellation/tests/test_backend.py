@@ -36,8 +36,9 @@ class TestNormalizeHandoffUrls(unittest.TestCase):
 class TestReadJsonBody(unittest.TestCase):
     def test_unicode_decode_error(self):
         app_state = MagicMock()
+        connection = MagicMock()
         request = tornado.httputil.HTTPServerRequest(
-            method="POST", uri="/", body=b"\xff\xfe\xff"
+            method="POST", uri="/", body=b"\xff\xfe\xff", connection=connection
         )
         handler = BaseHandler(app_state, request)
         with self.assertRaises(tornado.web.HTTPError) as ctx:
