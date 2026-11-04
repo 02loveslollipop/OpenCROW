@@ -40,7 +40,7 @@ class TestReadJsonBody(unittest.TestCase):
         request = tornado.httputil.HTTPServerRequest(
             method="POST", uri="/", body=b"\xff\xfe\xff", connection=connection
         )
-        handler = BaseHandler(app_state, request)
+        handler = BaseHandler(MagicMock(), request, app_state=app_state)
         with self.assertRaises(tornado.web.HTTPError) as ctx:
             handler.read_json_body()
         self.assertEqual(ctx.exception.status_code, 400)
