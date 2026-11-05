@@ -699,10 +699,16 @@ class StdioMCPServer:
 
             if stripped.lstrip().startswith((b"{", b"[")):
                 self._message_framing = JSON_LINE_FRAMING
-                return json.loads(stripped.decode("utf-8"))
+                try:
+                    return json.loads(stripped.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    return None
 
             headers: dict[str, str] = {}
-            decoded = stripped.decode("utf-8").strip()
+            try:
+                decoded = stripped.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                return None
             if ":" not in decoded:
                 continue
             name, value = decoded.split(":", 1)
@@ -714,7 +720,10 @@ class StdioMCPServer:
                     return None
                 if header_line in (b"\r\n", b"\n"):
                     break
-                header_text = header_line.decode("utf-8").strip()
+                try:
+                    header_text = header_line.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    return None
                 if not header_text:
                     break
                 if ":" not in header_text:
@@ -730,7 +739,10 @@ class StdioMCPServer:
             body = stream.read(content_length)
             if not body:
                 return None
-            return json.loads(body.decode("utf-8"))
+            try:
+                return json.loads(body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return None
 
     def _write_message(self, stream: Any, payload: JSON) -> None:
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
