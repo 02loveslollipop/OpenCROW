@@ -110,6 +110,8 @@ class BaseHandler(tornado.web.RequestHandler):
             payload = json.loads(self.request.body.decode("utf-8"))
         except json.JSONDecodeError as exc:
             raise tornado.web.HTTPError(400, reason=f"Invalid JSON body: {exc}") from exc
+        except UnicodeDecodeError as exc:
+            raise tornado.web.HTTPError(400, reason="Invalid encoding in JSON body.") from exc
         if not isinstance(payload, dict):
             raise tornado.web.HTTPError(400, reason="JSON body must be an object.")
         return payload
@@ -1027,7 +1029,10 @@ def _normalize_origin(origin: str) -> str:
 
 def _decode_ws_token(value: str) -> str:
     padding = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
+    try:
+        return base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
 
 
 def _extract_websocket_token(request: tornado.httputil.HTTPServerRequest) -> str:
