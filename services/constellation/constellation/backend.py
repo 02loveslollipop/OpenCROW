@@ -107,9 +107,10 @@ class BaseHandler(tornado.web.RequestHandler):
         if not self.request.body:
             return {}
         try:
+            # Security: Catch UnicodeDecodeError to prevent unhandled exceptions on invalid byte sequences
             payload = json.loads(self.request.body.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise tornado.web.HTTPError(400, reason=f"Invalid JSON body: {exc}") from exc
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise tornado.web.HTTPError(400, reason=f"Invalid JSON body or encoding: {exc}") from exc
         if not isinstance(payload, dict):
             raise tornado.web.HTTPError(400, reason="JSON body must be an object.")
         return payload
