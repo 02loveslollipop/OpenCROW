@@ -10,3 +10,8 @@
 **Vulnerability:** `secrets.compare_digest` in Python raises a `TypeError` ("comparing strings with non-ASCII characters is not supported") if one of the strings contains non-ASCII characters. The `X-Constellation-UI-Auth` header and JSON inputs were not encoded before comparison.
 **Learning:** Passing non-ASCII strings to `secrets.compare_digest` causes unhandled exceptions, potentially leading to Denial of Service or masking authentication bypasses if caught incorrectly. Using `isinstance(x, str)` is not enough as non-ASCII strings are still strings.
 **Prevention:** Always encode strings to bytes (`x.encode("utf-8")`) before passing them to `secrets.compare_digest`.
+
+## 2025-02-24 - Prevent DoS via unhandled UnicodeDecodeError
+**Vulnerability:** Unhandled `UnicodeDecodeError` when decoding user-controlled byte streams (e.g., `request.body.decode('utf-8')` in Tornado handlers or reading from MCP streams) causes the application thread to crash, leading to Denial of Service and 500 Internal Server Errors.
+**Learning:** Functions like `json.loads` catch `json.JSONDecodeError`, but the underlying `.decode('utf-8')` throws `UnicodeDecodeError` when processing invalid byte sequences. This must be explicitly handled.
+**Prevention:** Always catch `UnicodeDecodeError` alongside format errors (like `json.JSONDecodeError`) when decoding external stream inputs or user-controlled raw bytes.
