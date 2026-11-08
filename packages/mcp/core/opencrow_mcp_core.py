@@ -697,40 +697,43 @@ class StdioMCPServer:
             if not stripped:
                 continue
 
-            if stripped.lstrip().startswith((b"{", b"[")):
-                self._message_framing = JSON_LINE_FRAMING
-                return json.loads(stripped.decode("utf-8"))
+            try:
+                if stripped.lstrip().startswith((b"{", b"[")):
+                    self._message_framing = JSON_LINE_FRAMING
+                    return json.loads(stripped.decode("utf-8"))
 
-            headers: dict[str, str] = {}
-            decoded = stripped.decode("utf-8").strip()
-            if ":" not in decoded:
-                continue
-            name, value = decoded.split(":", 1)
-            headers[name.lower()] = value.strip()
-
-            while True:
-                header_line = stream.readline()
-                if not header_line:
-                    return None
-                if header_line in (b"\r\n", b"\n"):
-                    break
-                header_text = header_line.decode("utf-8").strip()
-                if not header_text:
-                    break
-                if ":" not in header_text:
+                headers: dict[str, str] = {}
+                decoded = stripped.decode("utf-8").strip()
+                if ":" not in decoded:
                     continue
-                header_name, header_value = header_text.split(":", 1)
-                headers[header_name.lower()] = header_value.strip()
+                name, value = decoded.split(":", 1)
+                headers[name.lower()] = value.strip()
 
-            self._message_framing = CONTENT_LENGTH_FRAMING
-            content_length = int(headers.get("content-length", "0"))
-            if content_length <= 0:
-                return None
+                while True:
+                    header_line = stream.readline()
+                    if not header_line:
+                        return None
+                    if header_line in (b"\r\n", b"\n"):
+                        break
+                    header_text = header_line.decode("utf-8").strip()
+                    if not header_text:
+                        break
+                    if ":" not in header_text:
+                        continue
+                    header_name, header_value = header_text.split(":", 1)
+                    headers[header_name.lower()] = header_value.strip()
 
-            body = stream.read(content_length)
-            if not body:
+                self._message_framing = CONTENT_LENGTH_FRAMING
+                content_length = int(headers.get("content-length", "0"))
+                if content_length <= 0:
+                    return None
+
+                body = stream.read(content_length)
+                if not body:
+                    return None
+                return json.loads(body.decode("utf-8"))
+            except UnicodeDecodeError:
                 return None
-            return json.loads(body.decode("utf-8"))
 
     def _write_message(self, stream: Any, payload: JSON) -> None:
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
