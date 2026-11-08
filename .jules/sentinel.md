@@ -10,3 +10,7 @@
 **Vulnerability:** `secrets.compare_digest` in Python raises a `TypeError` ("comparing strings with non-ASCII characters is not supported") if one of the strings contains non-ASCII characters. The `X-Constellation-UI-Auth` header and JSON inputs were not encoded before comparison.
 **Learning:** Passing non-ASCII strings to `secrets.compare_digest` causes unhandled exceptions, potentially leading to Denial of Service or masking authentication bypasses if caught incorrectly. Using `isinstance(x, str)` is not enough as non-ASCII strings are still strings.
 **Prevention:** Always encode strings to bytes (`x.encode("utf-8")`) before passing them to `secrets.compare_digest`.
+## 2024-05-16 - Handle UnicodeDecodeError in MCP Servers
+**Vulnerability:** When processing external stream inputs or decoding raw bytes in MCP servers (e.g., `packages/mcp/core/opencrow_mcp_core.py`), missing `try...except UnicodeDecodeError` blocks when calling `.decode("utf-8")` can cause unhandled exceptions, potentially leading to Denials of Service (DoS) by crashing the server thread handling streams.
+**Learning:** External streams cannot be trusted to contain valid UTF-8 byte sequences. Just like `json.loads()` requires a `try...except JSONDecodeError`, `.decode("utf-8")` requires handling `UnicodeDecodeError`.
+**Prevention:** Always wrap `.decode("utf-8")` calls in a `try...except UnicodeDecodeError` block when processing external stream inputs, returning or continuing safely rather than propagating the exception.
