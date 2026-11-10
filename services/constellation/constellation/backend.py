@@ -787,7 +787,13 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
             return
         self.write_message(json.dumps({"event_type": "hello", "protocol": "opencrow.runtime.v2"}))
 
-    def on_message(self, message: str) -> None:
+    def on_message(self, message: str | bytes) -> None:
+        if isinstance(message, bytes):
+            try:
+                message = message.decode("utf-8")
+            except UnicodeDecodeError:
+                self.write_message(json.dumps({"event_type": "error", "error": "Invalid UTF-8 payload"}))
+                return
         try:
             payload = json.loads(message)
         except json.JSONDecodeError:
@@ -929,7 +935,13 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         self.watch_thread.start()
         self.write_message(json.dumps({"event_type": "connected", "topic": self.topic, "member_id": self.member_id}))
 
-    def on_message(self, message: str) -> None:
+    def on_message(self, message: str | bytes) -> None:
+        if isinstance(message, bytes):
+            try:
+                message = message.decode("utf-8")
+            except UnicodeDecodeError:
+                self.write_message(json.dumps({"event_type": "error", "error": "Invalid UTF-8 payload"}))
+                return
         try:
             payload = json.loads(message)
         except json.JSONDecodeError:
