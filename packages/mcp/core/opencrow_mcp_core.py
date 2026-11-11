@@ -579,7 +579,7 @@ class StdioMCPServer:
                 if request is None:
                     return 0
                 response = self._handle_message(request)
-            except json.JSONDecodeError as exc:
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 response = self._error(None, -32700, f"Parse error: {exc}")
             except Exception as exc:  # never crash the serve loop on malformed input
                 response = self._error(None, -32603, f"Unhandled exception: {exc}")
