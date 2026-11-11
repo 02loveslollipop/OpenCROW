@@ -108,7 +108,7 @@ class BaseHandler(tornado.web.RequestHandler):
             return {}
         try:
             payload = json.loads(self.request.body.decode("utf-8"))
-        except json.JSONDecodeError as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise tornado.web.HTTPError(400, reason=f"Invalid JSON body: {exc}") from exc
         if not isinstance(payload, dict):
             raise tornado.web.HTTPError(400, reason="JSON body must be an object.")
@@ -787,10 +787,12 @@ class RuntimeControlWebSocket(tornado.websocket.WebSocketHandler):
             return
         self.write_message(json.dumps({"event_type": "hello", "protocol": "opencrow.runtime.v2"}))
 
-    def on_message(self, message: str) -> None:
+    def on_message(self, message: str | bytes) -> None:
         try:
+            if isinstance(message, bytes):
+                message = message.decode("utf-8")
             payload = json.loads(message)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload"}))
             return
         if not isinstance(payload, dict):
@@ -929,10 +931,12 @@ class ConstellationWebSocket(tornado.websocket.WebSocketHandler):
         self.watch_thread.start()
         self.write_message(json.dumps({"event_type": "connected", "topic": self.topic, "member_id": self.member_id}))
 
-    def on_message(self, message: str) -> None:
+    def on_message(self, message: str | bytes) -> None:
         try:
+            if isinstance(message, bytes):
+                message = message.decode("utf-8")
             payload = json.loads(message)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             self.write_message(json.dumps({"event_type": "error", "error": "Invalid JSON payload"}))
             return
         if not isinstance(payload, dict):
